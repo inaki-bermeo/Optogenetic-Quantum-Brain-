@@ -3,6 +3,24 @@
 <script type="module" src="main.js"></script>
 </head>
 <body>
+<!-- Pantalla de Introducción -->
+  <div id="intro-screen" class="intro-screen">
+    <div class="intro-content">
+      <h1 class="intro-title">Cerebro Cuántico Optogenético</h1>
+      
+      <div class="intro-text">
+        <p><strong>¿Qué pasaría si un cerebro funcionara con las reglas de la mecánica cuántica?</strong></p>
+        <p>En la biología real (optogenética), iluminamos una neurona con un láser para que dispare, y la señal viaja como un efecto dominó predecible. Aquí, reimaginamos ese experimento usando <strong>cómputo cuántico real (Qiskit & IonQ)</strong>.</p>
+        <p>Al disparar el láser, la señal no elige un solo camino. Se transforma en una onda de probabilidad que fluye por las 302 neuronas del gusano <em>C. elegans</em> <strong>al mismo tiempo</strong>. Los caminos se suman (haciendo brillar neuronas lejanas) o se cancelan (dejando a oscuras a las más cercanas) formando puros patrones de interferencia.</p>
+        <p>Pero cuidado, cuando el sistema es medido, la onda colapsa. Escucha el sonido de la probabilidad rompiéndose y descubre cómo observar el sistema cambia su realidad.</p>
+      </div>
+      
+      <button id="intro-enter-btn" class="btn primary intro-btn">
+        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" style="width: 18px; height: 18px; margin-right: 8px; vertical-align: middle;"><path d="M7 5l12 7-12 7z" fill="currentColor"/></svg>
+        Iniciar Simulación
+      </button>
+    </div>
+  </div>
 <a class="skip-link" href="#chapters">Skip to the panels</a>
 
 <div class="app" id="app" lang="en">

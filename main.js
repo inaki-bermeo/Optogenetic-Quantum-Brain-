@@ -646,8 +646,14 @@ function renderBackendInfo() {
     : `Ready on ${b.nombre}. Nothing has run yet.`;
 }
 
-// ------------------------------------------------------------------ eventos
 function bindUI() {
+  // Lógica de la pantalla de introducción
+  const introBtn = $("intro-enter-btn");
+  if (introBtn) {
+    introBtn.addEventListener("click", () => {
+      $("intro-screen").classList.add("hidden");
+    });
+  }
   $("fire-btn").addEventListener("click", fire);
   $("casc-stop").addEventListener("click", stopCascade);
   $("neuron-input").addEventListener("change", () => {

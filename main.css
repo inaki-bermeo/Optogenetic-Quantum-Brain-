@@ -382,3 +382,61 @@
 @media (max-width: 960px) { .circ-grid { grid-template-columns: 1fr; } }
 #sound-btn[aria-pressed="false"] { color: var(--faint); }
 #sound-btn svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; }
+/* ---------- Pantalla de Introducción ---------- */
+.intro-screen {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  background: var(--bg, #0c111e);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  transition: opacity 1.2s ease, visibility 1.2s ease;
+}
+
+.intro-screen.hidden {
+  opacity: 0;
+  visibility: hidden;
+}
+
+.intro-content {
+  max-width: 650px;
+  padding: 45px 40px;
+  background: rgba(12, 17, 30, 0.8);
+  border: 1px solid rgba(56, 225, 255, 0.3);
+  border-radius: 16px;
+  backdrop-filter: blur(12px);
+  box-shadow: 0 0 60px rgba(56, 225, 255, 0.15);
+}
+
+.intro-title {
+  font-size: 32px;
+  font-weight: 700;
+  color: var(--text, #ffffff);
+  margin-top: 0;
+  margin-bottom: 24px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  text-shadow: 0 0 15px rgba(56, 225, 255, 0.4);
+}
+
+.intro-text p {
+  font-size: 15px;
+  color: var(--muted, #a0aabf);
+  line-height: 1.6;
+  margin-bottom: 16px;
+}
+
+.intro-text p strong {
+  color: var(--accent, #38e1ff);
+}
+
+.intro-btn {
+  font-size: 16px;
+  padding: 14px 34px;
+  width: auto;
+  margin-top: 15px;
+  border-radius: 12px;
+  cursor: pointer;
+}
