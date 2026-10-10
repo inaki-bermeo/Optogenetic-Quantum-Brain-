@@ -57,7 +57,12 @@ export class Sonido {
     const t = this.ctx.currentTime;
     this.master.gain.cancelScheduledValues(t);
     this.master.gain.setTargetAtTime(v ? 0.7 : 0, t, 0.05);
-    if (!v) { this.pararFondo(); this.musicaOff(); }
+    if (!v) {
+      this.pararFondo();
+      this.musicaOff();
+      // sin sonido no hace falta que el motor de audio siga calculando: se suspende tras el fundido
+      setTimeout(() => { if (!this.on && this.ctx.state === "running") this.ctx.suspend(); }, 400);
+    }
   }
 
   get listo() { return !!(this.on && this.ctx && this.ctx.state !== "closed"); }
@@ -197,26 +202,34 @@ export class Sonido {
   // ---------------------------------------------------------------- música de fondo (submarina)
   /** Respuesta al impulso para la reverberación: ruido estéreo con caída exponencial (sala grande y húmeda). */
   _reverb(seg = 4.5) {
-    const ctx = this.ctx, n = Math.floor(ctx.sampleRate * seg);
-    const buf = ctx.createBuffer(2, n, ctx.sampleRate);
-    for (let c = 0; c < 2; c++) {
-      const d = buf.getChannelData(c);
-      for (let i = 0; i < n; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / n, 3.2);
+    const ctx = this.ctx;
+    if (!this._bufReverb) { // se calcula una sola vez (≈ 400 000 muestras)
+      const n = Math.floor(ctx.sampleRate * seg);
+      const buf = ctx.createBuffer(2, n, ctx.sampleRate);
+      for (let c = 0; c < 2; c++) {
+        const d = buf.getChannelData(c);
+        for (let i = 0; i < n; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / n, 3.2);
+      }
+      this._bufReverb = buf;
     }
     const conv = ctx.createConvolver();
-    conv.buffer = buf;
+    conv.buffer = this._bufReverb;
     return conv;
   }
 
   /** Ruido marrón (grave, como agua en movimiento), en un buffer que se repite. */
   _ruidoMarron(seg = 6) {
-    const ctx = this.ctx, n = Math.floor(ctx.sampleRate * seg);
-    const buf = ctx.createBuffer(1, n, ctx.sampleRate);
-    const d = buf.getChannelData(0);
-    let last = 0;
-    for (let i = 0; i < n; i++) { last = (last + 0.02 * (Math.random() * 2 - 1)) / 1.02; d[i] = last * 3.5; }
+    const ctx = this.ctx;
+    if (!this._bufRuido) { // se calcula una sola vez
+      const n = Math.floor(ctx.sampleRate * seg);
+      const buf = ctx.createBuffer(1, n, ctx.sampleRate);
+      const d = buf.getChannelData(0);
+      let last = 0;
+      for (let i = 0; i < n; i++) { last = (last + 0.02 * (Math.random() * 2 - 1)) / 1.02; d[i] = last * 3.5; }
+      this._bufRuido = buf;
+    }
     const src = ctx.createBufferSource();
-    src.buffer = buf;
+    src.buffer = this._bufRuido;
     src.loop = true;
     return src;
   }
@@ -224,7 +237,7 @@ export class Sonido {
   /** Enciende el ambiente submarino (después de un gesto del usuario). */
   musicaOn() {
     const M = this.musica;
-    if (!this.listo || M.on) return;
+    if (!this.listo || M.on || M.vol <= 0) return;
     M.on = true;
     const ctx = this.ctx, t0 = ctx.currentTime + 0.05;
     // cadena: voces → filtro "bajo el agua" (con vaivén) → seco + reverb → volumen → master
@@ -286,6 +299,8 @@ export class Sonido {
   /** Volumen de la música (0..1, el control de Lab settings). */
   setMusicaVol(v) {
     this.musica.vol = v;
+    if (v <= 0) this.musicaOff(); // en 0 se apaga del todo (no sólo se baja)
+    else if (!this.musica.on && this.ctx) this.musicaOn();
     this._aplicarNivel();
   }
 
@@ -295,9 +310,19 @@ export class Sonido {
     this._aplicarNivel();
   }
 
-  /** Con la pestaña oculta la música se apaga suavemente y vuelve al regresar. */
+  /** Con la pestaña oculta el audio se suspende (y se dejan de programar acordes); vuelve al regresar. */
   musicaOculta(v) {
-    this.musica.oculto = v;
+    const M = this.musica;
+    M.oculto = v;
+    if (!this.ctx) return;
+    if (v) {
+      M.timers.forEach(clearTimeout);
+      M.timers = [];
+      this.ctx.suspend();
+    } else if (this.on) {
+      this.ctx.resume();
+      if (M.on && !M.timers.length) { this._siguienteAcorde(); this._burbujas(); }
+    }
     this._aplicarNivel();
   }
 

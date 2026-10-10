@@ -3,27 +3,32 @@
 <script type="module" src="main.js"></script>
 </head>
 <body>
-<!-- Pantalla de Introducción -->
-  <div id="intro-screen" class="intro-screen">
-    <div class="intro-content">
-      <h1 class="intro-title">Cerebro Cuántico Optogenético</h1>
-      
-      <div class="intro-text">
-        <p><strong>¿Qué pasaría si un cerebro funcionara con las reglas de la mecánica cuántica?</strong></p>
-        <p>En la biología real (optogenética), iluminamos una neurona con un láser para que dispare, y la señal viaja como un efecto dominó predecible. Aquí, reimaginamos ese experimento usando <strong>cómputo cuántico real (Qiskit & IonQ)</strong>.</p>
-        <p>Al disparar el láser, la señal no elige un solo camino. Se transforma en una onda de probabilidad que fluye por las 302 neuronas del gusano <em>C. elegans</em> <strong>al mismo tiempo</strong>. Los caminos se suman (haciendo brillar neuronas lejanas) o se cancelan (dejando a oscuras a las más cercanas) formando puros patrones de interferencia.</p>
-        <p>Pero cuidado, cuando el sistema es medido, la onda colapsa. Escucha el sonido de la probabilidad rompiéndose y descubre cómo observar el sistema cambia su realidad.</p>
-      </div>
-      
-      <button id="intro-enter-btn" class="btn primary intro-btn">
-        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" style="width: 18px; height: 18px; margin-right: 8px; vertical-align: middle;"><path d="M7 5l12 7-12 7z" fill="currentColor"/></svg>
-        Iniciar Simulación
-      </button>
+<!-- Pantalla de inicio: un diálogo modal; la página queda inerte hasta entrar (main.js) -->
+<div id="intro-screen" class="intro-screen" role="dialog" aria-modal="true" aria-labelledby="intro-title"
+     aria-describedby="intro-text" lang="en">
+  <div class="intro-content">
+    <h2 class="intro-title" id="intro-title">Optogenetic Quantum Brain</h2>
+    <div class="intro-text" id="intro-text">
+      <p><strong>What if a brain followed the rules of quantum mechanics?</strong></p>
+      <p>In optogenetics, scientists shine light on a single neuron to make it fire, and watch the signal travel
+        through the brain. Here we reimagine that experiment with <strong>real quantum computing (Qiskit &amp; IonQ)</strong>.</p>
+      <p>When the laser hits, the signal does not pick one path. It becomes a wave of probability that spreads over
+        the neuron and its closest neighbours <strong>all at once</strong>. Paths add up and make some neurons glow, or
+        cancel out and leave others dark, even right next door: that is interference.</p>
+      <p>Then the circuit is measured and the wave collapses onto a single neuron, which fires the next step.
+        Listen to the sound of probability collapsing, and see how observing the system changes what happens.</p>
+      <p class="intro-source">The wiring is real: the 302 neurons of the worm <em>C. elegans</em> and their synapses,
+        mapped synapse by synapse with an electron microscope (Cook et al., <em>Nature</em> 2019).</p>
     </div>
+    <button type="button" id="intro-enter-btn" class="btn primary intro-btn">
+      <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M7 5l12 7-12 7z" fill="currentColor"/></svg>
+      Start the simulation
+    </button>
   </div>
-<a class="skip-link" href="#chapters">Skip to the panels</a>
+</div>
+<a class="skip-link" href="#chapters" inert>Skip to the panels</a>
 
-<div class="app" id="app" lang="en">
+<div class="app" id="app" lang="en" inert>
   <header class="topbar">
     <div class="brand">
       <span class="brand-dot" aria-hidden="true"></span>
@@ -140,7 +145,7 @@
           the excitation spreads as a <b>quantum walk</b> through its 9 most connected neighbours, and measuring
           <b>collapses</b> it onto one neuron, which fires the next step.</p>
         <div class="field">
-          <label class="lbl" for="neuron-input">Neuron to illuminate</label>
+          <div class="field-head"><label class="lbl" for="neuron-input">Neuron to illuminate</label><button type="button" class="help" data-help="datos" aria-label="Is this the real worm?">?</button></div>
           <input id="neuron-input" list="neuron-list" value="AVM" autocomplete="off" spellcheck="false"
                  aria-describedby="neuron-hint neuron-card" />
           <datalist id="neuron-list"></datalist>
@@ -244,7 +249,8 @@
   <footer class="footer">
     <span class="formula" aria-label="Each step: RX of theta on the lit neuron, then e to the minus i tau H, with H equal to gamma times the sum over synapses of J i j times X i X j plus Y i Y j over two, then measure">
       |ψ⟩ = e<sup>−iτH</sup> RX(θ)|0…0⟩, &nbsp;H = γ Σ J<sub>ij</sub>(X<sub>i</sub>X<sub>j</sub> + Y<sub>i</sub>Y<sub>j</sub>)/2</span>
-    <span>Data: Cook et al. 2019 · OpenWorm</span>
+    <span>Data: <a href="https://doi.org/10.1038/s41586-019-1352-7" target="_blank" rel="noopener">Cook et al., <em>Nature</em> 2019</a>
+      (electron-microscopy connectome) · <a href="https://github.com/openworm/c302" target="_blank" rel="noopener">OpenWorm c302</a></span>
     <span class="attribution">This effort is supported by Qollab &amp; IonQ.</span>
   </footer>
 

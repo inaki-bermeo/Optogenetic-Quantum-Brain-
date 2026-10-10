@@ -19,9 +19,11 @@ def entrar(pag):
     """Espera a que cargue la página y cierra la pantalla de inicio con el teclado (Enter)."""
     pag.wait_for_selector("#loader.hide", timeout=60000)
     if pag.locator("#intro-enter-btn").count() and pag.is_visible("#intro-enter-btn"):
-        pag.focus("#intro-enter-btn")
+        assert pag.evaluate("document.activeElement.id") == "intro-enter-btn", "la pantalla de inicio debe tomar el foco"
+        assert pag.evaluate("document.getElementById('app').inert"), "la página debe quedar inerte detrás del inicio"
         pag.keyboard.press("Enter")
-        pag.wait_for_selector("#intro-screen", state="hidden", timeout=5000)
+        pag.wait_for_selector("#intro-screen", state="hidden", timeout=20000)
+        assert not pag.evaluate("document.getElementById('app').inert")
 
 
 def main():

@@ -12,7 +12,7 @@
 //
 // This effort is supported by Qollab & IonQ.
 import { QUALITY, WormScene } from "./js/escena.js";
-import { dataTable, groupedBars, SERIES_COLORS } from "./js/graficos.js";
+import { dataTable, esc, groupedBars, SERIES_COLORS } from "./js/graficos.js";
 import { py, respirar } from "./js/python.js";
 import { notaNeurona, Sonido } from "./js/sonido.js";
 
@@ -24,7 +24,7 @@ const BACKEND = typeof backend !== "undefined" ? backend : null; // eslint-disab
 
 const state = { neurons: [], index: new Map(), source: "AVM", backend: null, jobsSent: 0 };
 const cascade = { running: false, stop: false, armed: false, centers: [], steps: [] };
-const ui = { chapter: 1, narr: null };
+const ui = { chapter: 1, narr: null, intro: true };
 const circ = { cache: new Map(), follow: true, turno: 0, fig: new Map(), figTurno: 0, mplListo: false, mpl: null };
 const DOS_QUBITS = new Set(["rxx", "ryy", "rzz", "rzx", "cx", "cz", "ecr", "ms", "zz", "swap", "iswap", "xx_plus_yy"]);
 const SOUND_ON = '<path d="M4 9v6h4l5 4V5L8 9H4z"/><path d="M16 8.5a5 5 0 0 1 0 7M18.5 6a8.5 8.5 0 0 1 0 12"/>';
@@ -38,11 +38,17 @@ const HELP = {
     "collapses the wave onto one neuron. Measure too often (small τ) and the wave never gets to move: the quantum Zeno effect.",
   gamma: "γ is the strength of every synapse in the Hamiltonian H = γ Σ J_ij (XX + YY)/2. " +
     "Doubling γ makes everything happen twice as fast.",
+  datos: "Yes. Every neuron here is a real, named cell of the worm C. elegans, and every line is a real synapse. " +
+    "The wiring comes from Cook et al., Nature 2019: the whole nervous system was cut into thousands of ultra-thin " +
+    "slices, imaged with an electron microscope, and every chemical synapse and gap junction was traced by hand " +
+    "(data at wormwiring.org, edge list from OpenWorm c302). Positions of the 302 cell bodies come from OpenWorm. " +
+    "The footer links to both sources.",
   shots: "A shot is one run of the circuit followed by one measurement. Quantum results are random, so the circuit " +
     "is repeated many times and we count how often each neuron came out as 1. The cascade then picks one shot at random.",
 };
 
 const scene = new WormScene($("scene"), { quality: "auto" });
+scene.setPaused(true); // hasta salir de la pantalla de inicio (bindIntro)
 const sound = new Sonido();
 
 // ------------------------------------------------------------------ utilidades
@@ -59,7 +65,6 @@ function announce(msg) {
   s.textContent = "";
   setTimeout(() => { s.textContent = msg; }, 30);
 }
-const esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 const fmtTheta = (th) => (Math.abs(th - Math.PI) < 0.01 ? "π" : `${(th / Math.PI).toFixed(2)}π`);
 const pct = (v) => `${(100 * v).toFixed(1)}%`;
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
@@ -114,8 +119,11 @@ function setChapter(n, { focusTab = false } = {}) {
   $("chap-2").hidden = n !== 2;
   if (focusTab) TABS[n - 1].focus();
   closeHelp();
-  if (prev !== n && n === 2) renderCircuitPanel();
-  if (prev !== n && n === 1) scene.requestRender();
+  scene.setPaused(n !== 1 || ui.intro);
+  if (prev !== n && n === 2) {
+    renderCircuitPanel();
+    precargarMpl(); // matplotlib (~30 s la 1ª vez) sólo se carga si alguien abre el panel 2
+  }
 }
 
 // ------------------------------------------------------------------ fuente del láser
@@ -284,7 +292,6 @@ async function fire() {
       "collapse");
     }
     if (ui.chapter === 2) renderCircuitPanel();
-    precargarMpl();
   }
 }
 
@@ -646,14 +653,26 @@ function renderBackendInfo() {
     : `Ready on ${b.nombre}. Nothing has run yet.`;
 }
 
+/** Pantalla de inicio: la página queda inerte y la escena en pausa hasta que se entra. */
+function bindIntro() {
+  const intro = $("intro-screen"), btn = $("intro-enter-btn");
+  if (!intro || !btn) { ui.intro = false; scene.setPaused(ui.chapter !== 1); return; }
+  const entrar = () => {
+    if (!ui.intro) return;
+    ui.intro = false;
+    intro.classList.add("hidden");
+    $("app").inert = false;
+    document.querySelector(".skip-link").inert = false;
+    scene.setPaused(ui.chapter !== 1);
+    TABS[ui.chapter - 1].focus();
+  };
+  btn.addEventListener("click", entrar);
+  intro.addEventListener("keydown", (e) => { if (e.key === "Escape") { e.preventDefault(); entrar(); } });
+  btn.focus();
+}
+
 function bindUI() {
-  // Lógica de la pantalla de introducción
-  const introBtn = $("intro-enter-btn");
-  if (introBtn) {
-    introBtn.addEventListener("click", () => {
-      $("intro-screen").classList.add("hidden");
-    });
-  }
+  bindIntro();
   $("fire-btn").addEventListener("click", fire);
   $("casc-stop").addEventListener("click", stopCascade);
   $("neuron-input").addEventListener("change", () => {
@@ -755,13 +774,16 @@ function bindUI() {
   });
   scene.on("pick", (i) => selectSource(state.neurons[i].name));
   const tip = $("tooltip");
+  let tipIndex = -1;
   scene.on("hover", (i, px) => {
-    if (i < 0 || !px) { tip.classList.remove("show"); return; }
-    const d = state.neurons[i];
-    tip.innerHTML = `<b>${d.name}</b> <span class="tag ${d.type}">${TYPE_ES[d.type]}</span><br>${d.degree} connections` +
-      `<br><span style="color:var(--faint)">click: aim the laser here</span>`;
-    tip.style.left = `${px[0] + 14}px`;
-    tip.style.top = `${px[1] + 14}px`;
+    if (i < 0 || !px) { tip.classList.remove("show"); tipIndex = -1; return; }
+    if (i !== tipIndex) { // el contenido sólo cambia al pasar a otra neurona; si no, sólo se mueve
+      tipIndex = i;
+      const d = state.neurons[i];
+      tip.innerHTML = `<b>${d.name}</b> <span class="tag ${d.type}">${TYPE_ES[d.type]}</span><br>${d.degree} connections` +
+        `<br><span style="color:var(--faint)">click: aim the laser here</span>`;
+    }
+    tip.style.transform = `translate3d(${px[0] + 14}px, ${px[1] + 14}px, 0)`;
     tip.classList.add("show");
   });
 }

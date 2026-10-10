@@ -1,11 +1,13 @@
-// Escena 3D: gusano C. elegans con sus 302 neuronas en posiciones reales (versión Qollab).
+// Escena 3D: gusano C. elegans con sus 302 neuronas en posiciones reales.
 //
-// Diferencias con frontend/js/scene.js: el lienzo vive dentro de un contenedor (no ocupa
-// la ventana), el cuerpo .glb llega desde Python como bytes (JS no puede leer archivos
-// del proyecto en Qollab), respeta prefers-reduced-motion y se maneja con teclado.
+// El lienzo vive dentro de un contenedor (no ocupa la ventana), el cuerpo .glb llega desde
+// Python como bytes (JS no puede leer archivos del proyecto en Qollab), respeta
+// prefers-reduced-motion y se maneja con teclado.
 //
 // Rendimiento (pensado para notebooks con gráficos integrados):
 //   * render bajo demanda: sólo se dibuja cuando algo cambia (cámara, animación, láser);
+//   * el bucle se detiene del todo mientras el lienzo no se ve (panel 2, fuera de pantalla,
+//     pantalla de inicio) y el nado solo se dibuja a 30 cuadros por segundo;
 //   * calidad alta / media / baja, con ajuste automático si los FPS caen;
 //   * bloom a media resolución en "media" y desactivado en "baja";
 //   * selección de neuronas en espacio de pantalla (sin raycasting por cuadro);
@@ -30,7 +32,7 @@ const STOPS = [
   [0.7, new THREE.Color("#38e1ff")],
   [1.0, new THREE.Color("#ffffff")],
 ];
-export function colormap(v, out = new THREE.Color()) {
+function colormap(v, out = new THREE.Color()) {
   v = Math.min(1, Math.max(0, v));
   for (let i = 1; i < STOPS.length; i++) {
     if (v <= STOPS[i][0]) {
@@ -53,7 +55,8 @@ const REDUCED_MOTION = typeof matchMedia === "function" && matchMedia("(prefers-
 
 const S_AP = 0.02; // µm → unidades de escena (eje anteroposterior)
 const S_TR = 0.028; // ejes transversales (×1.4 respecto del real, para leer mejor el volumen)
-const GLTF_SCALE = 0.01; // 1 unidad glTF = 100 µm  (ver docs/MODELO_3D.md)
+const GLTF_SCALE = 0.01; // 1 unidad glTF = 100 µm  (ver docs/3d-model.md)
+const SWIM_FRAME = 1 / 30; // el nado, si es lo único que se mueve, se dibuja a 30 cuadros por segundo
 
 // Nado: onda transversal y = A·(0.3 + 0.7·s)·sin(k(x − x0) − ωt), s = 0 en la cabeza y 1 en la cola.
 const SWIM_AMP = 0.13;
@@ -137,10 +140,33 @@ export class WormScene {
     };
     this.swim = { enabled: !REDUCED_MOTION, target: REDUCED_MOTION ? 0 : 1, level: 0 };
     this.glbBytes = null;
+    this._paused = false; // lo decide main.js (panel 2, pantalla de inicio)
+    this._onScreen = true; // IntersectionObserver
+    this._running = false;
+    this._sinceSwim = 0;
     this._addStars();
     this._bindEvents();
     this._resize();
-    this.renderer.setAnimationLoop(() => this._tick());
+    this._updateLoop();
+  }
+
+  /** main.js pausa la escena mientras no se ve (panel 2, pantalla de inicio). */
+  setPaused(v) { this._paused = v; this._updateLoop(); }
+
+  _updateLoop() {
+    const run = !this._paused && this._onScreen && !document.hidden;
+    if (run === this._running) return;
+    this._running = run;
+    if (run) {
+      this._last = performance.now();
+      this._dirty = true;
+      this.renderer.setAnimationLoop(() => this._tick());
+    } else {
+      this.renderer.setAnimationLoop(null);
+      // las animaciones en curso terminan ya: la cascada espera la promesa del colapso
+      this._endCollapse();
+      this._removeLaser();
+    }
   }
 
   on(name, fn) { this.callbacks[name] = fn; }
@@ -454,15 +480,22 @@ export class WormScene {
     return mat;
   }
 
+  /** Material de brillo (aditivo, sin tone mapping) que ondula con el nado. */
+  _glow(color, opacity, extra = {}) {
+    return this._sw(new THREE.MeshBasicMaterial({ color, transparent: true, opacity, blending: THREE.AdditiveBlending,
+      depthWrite: false, toneMapped: false, ...extra }));
+  }
+
   // --------------------------------------------------------------- resaltes
   setHighlight(indices) {
     this.highlight = new Set(indices);
     this.ringGroup.clear();
-    const geo = new THREE.RingGeometry(0.13, 0.16, 32);
-    const mat = this._sw(new THREE.MeshBasicMaterial({ color: "#ffd166", transparent: true, opacity: 0.85,
+    // geometría y material compartidos por todos los anillos (se crean una sola vez)
+    this._ringGeo ??= new THREE.RingGeometry(0.13, 0.16, 32);
+    this._ringMat ??= this._sw(new THREE.MeshBasicMaterial({ color: "#ffd166", transparent: true, opacity: 0.85,
       side: THREE.DoubleSide, toneMapped: false, depthWrite: false }));
     for (const i of indices) {
-      const m = new THREE.Mesh(geo, mat);
+      const m = new THREE.Mesh(this._ringGeo, this._ringMat);
       m.position.copy(this.positions[i]);
       this.ringGroup.add(m);
     }
@@ -493,6 +526,7 @@ export class WormScene {
       textShadow: "0 0 8px rgba(56,225,255,.9)", transform: "translate(-50%, -160%)", whiteSpace: "nowrap",
     });
     this.labelEl.className = "neuron-label";
+    Object.assign(this.labelEl.style, { left: "0", top: "0", willChange: "transform" });
     this.labelEl.setAttribute("aria-hidden", "true");
     this.container.appendChild(this.labelEl);
     this.labelIndex = -1;
@@ -562,28 +596,24 @@ export class WormScene {
   // ------------------------------------------------------------------- láser
   fireLaser(index, intensity = 1) {
     const target = this.positions[index];
-    if (this.laser) this.scene.remove(this.laser.group);
+    this._removeLaser();
+    if (!this._running) return; // no se ve: no hay nada que animar
     const group = new THREE.Group();
     const from = target.clone().add(new THREE.Vector3(-0.6, 4.5, 1.2));
     const dir = target.clone().sub(from);
     const len = dir.length();
     const mk = (r, color, op) => {
-      const m = new THREE.Mesh(new THREE.CylinderGeometry(r, r * 0.6, len, 12, 1, true),
-        this._sw(new THREE.MeshBasicMaterial({ color, transparent: true, opacity: op, blending: THREE.AdditiveBlending,
-          depthWrite: false, toneMapped: false })));
+      const m = new THREE.Mesh(new THREE.CylinderGeometry(r, r * 0.6, len, 12, 1, true), this._glow(color, op));
       m.position.copy(from).addScaledVector(dir, 0.5);
       m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.clone().normalize());
       return m;
     };
     const glow = mk(0.07, new THREE.Color("#4da3ff").multiplyScalar(1.6), 0.3);
     const core = mk(0.014, new THREE.Color("#e8f4ff").multiplyScalar(2), 0.9);
-    const flash = new THREE.Mesh(new THREE.SphereGeometry(0.3, 16, 12), this._sw(new THREE.MeshBasicMaterial({
-      color: new THREE.Color("#7cc4ff").multiplyScalar(3), transparent: true, opacity: 0.8,
-      blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false })));
+    const flash = new THREE.Mesh(new THREE.SphereGeometry(0.3, 16, 12), this._glow(new THREE.Color("#7cc4ff").multiplyScalar(3), 0.8));
     flash.position.copy(target);
-    const ring = new THREE.Mesh(new THREE.RingGeometry(0.2, 0.24, 48), this._sw(new THREE.MeshBasicMaterial({
-      color: new THREE.Color("#4da3ff").multiplyScalar(2.5), transparent: true, opacity: 0.9,
-      side: THREE.DoubleSide, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false })));
+    const ring = new THREE.Mesh(new THREE.RingGeometry(0.2, 0.24, 48),
+      this._glow(new THREE.Color("#4da3ff").multiplyScalar(2.5), 0.9, { side: THREE.DoubleSide }));
     ring.position.copy(target);
     group.add(glow, core, flash, ring);
     this.scene.add(group);
@@ -604,12 +634,17 @@ export class WormScene {
     L.ring.scale.setScalar(1 + L.t * 5);
     L.ring.material.opacity = Math.max(0, 0.9 - L.t * 0.7);
     L.ring.lookAt(this.camera.position);
-    if (L.t > 1.6) {
-      this.scene.remove(L.group);
-      L.group.traverse((o) => { o.geometry?.dispose(); o.material?.dispose(); });
-      this.laser = null;
-    }
+    if (L.t > 1.6) this._removeLaser();
     return true;
+  }
+
+  _removeLaser() {
+    const L = this.laser;
+    if (!L) return;
+    this.laser = null;
+    this.scene.remove(L.group);
+    L.group.traverse((o) => { o.geometry?.dispose(); o.material?.dispose(); });
+    this.requestRender();
   }
 
   // ---------------------------------------------------------- medición (colapso)
@@ -622,16 +657,14 @@ export class WormScene {
    */
   collapse(windowIdx, probs, spikeIdx, { superposition = 0.9, collapse = 0.75 } = {}) {
     this._endCollapse();
-    if (this.reducedMotion || !this.positions || !windowIdx?.length) return Promise.resolve();
+    if (this.reducedMotion || !this._running || !this.positions || !windowIdx?.length) return Promise.resolve();
     const tot = probs.reduce((a, b) => a + Math.max(0, b), 0) || 1;
     const p = probs.map((v) => Math.max(0, v) / tot);
     const pmax = Math.max(...p, 1e-9);
     const group = new THREE.Group();
-    const add = (c, o) => this._sw(new THREE.MeshBasicMaterial({ color: c, transparent: true, opacity: o,
-      blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false }));
     const haloGeo = new THREE.SphereGeometry(0.22, 18, 12);
     const halos = windowIdx.map((g, i) => {
-      const m = new THREE.Mesh(haloGeo, add(new THREE.Color("#38e1ff").multiplyScalar(1.3), 0));
+      const m = new THREE.Mesh(haloGeo, this._glow(new THREE.Color("#38e1ff").multiplyScalar(1.3), 0));
       m.position.copy(this.positions[g]);
       m.userData = { r: 0.35 + 1.25 * Math.sqrt(p[i] / pmax), ph: i * 0.7 };
       group.add(m);
@@ -654,9 +687,9 @@ export class WormScene {
     group.add(pts);
     // destello final sobre la neurona medida
     const target = spikeIdx != null ? this.positions[spikeIdx] : null;
-    const flash = new THREE.Mesh(new THREE.SphereGeometry(0.3, 18, 12), add(new THREE.Color("#ffb347").multiplyScalar(2.6), 0));
-    const ring = new THREE.Mesh(new THREE.RingGeometry(0.24, 0.29, 48), add(new THREE.Color("#ffb347").multiplyScalar(2.2), 0));
-    ring.material.side = THREE.DoubleSide;
+    const flash = new THREE.Mesh(new THREE.SphereGeometry(0.3, 18, 12), this._glow(new THREE.Color("#ffb347").multiplyScalar(2.6), 0));
+    const ring = new THREE.Mesh(new THREE.RingGeometry(0.24, 0.29, 48),
+      this._glow(new THREE.Color("#ffb347").multiplyScalar(2.2), 0, { side: THREE.DoubleSide }));
     if (target) { flash.position.copy(target); ring.position.copy(target); group.add(flash, ring); }
     this.scene.add(group);
 
@@ -757,8 +790,6 @@ export class WormScene {
     this.requestRender();
   }
 
-  focus(index) { this._focusTarget = this.positions[index].clone(); this.requestRender(); }
-
   // ---------------------------------------------------------------- interno
   _addStars() {
     const n = 900;
@@ -775,7 +806,10 @@ export class WormScene {
 
   _bindEvents() {
     if (typeof ResizeObserver === "function") new ResizeObserver(() => this._resize()).observe(this.container);
-    window.addEventListener("resize", () => this._resize());
+    else window.addEventListener("resize", () => this._resize());
+    if (typeof IntersectionObserver === "function") {
+      new IntersectionObserver(([e]) => { this._onScreen = e.isIntersecting; this._updateLoop(); }).observe(this.canvas);
+    }
     const local = (e) => { const r = this.canvas.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; };
     this.canvas.addEventListener("pointermove", (e) => { this.pointer = local(e); this._pointerMoved = true; });
     this.canvas.addEventListener("pointerleave", () => { this.pointer = null; this._pointerMoved = true; });
@@ -787,7 +821,7 @@ export class WormScene {
       const idx = this._pick(x, y);
       if (idx >= 0) this.callbacks.pick(idx);
     });
-    document.addEventListener("visibilitychange", () => { if (!document.hidden) this.requestRender(); });
+    document.addEventListener("visibilitychange", () => this._updateLoop());
     // Teclado (con el foco en el lienzo): el resto lo decide main.js
     this.canvas.addEventListener("keydown", (e) => {
       if (e.key === "r" || e.key === "R") { this.resetView(); e.preventDefault(); return; }
@@ -801,7 +835,7 @@ export class WormScene {
   /** Neurona más cercana al puntero en pantalla (≤ 14 px). O(302), sin raycasting. */
   _pick(px, py) {
     if (!this.positions) return -1;
-    const w = this.canvas.clientWidth, h = this.canvas.clientHeight;
+    const w = this._w, h = this._h;
     let best = -1, bestD = 14 * 14, bestZ = Infinity;
     for (let i = 0; i < this.positions.length; i++) {
       const p = this._tmpVec.copy(this.positions[i]);
@@ -817,6 +851,7 @@ export class WormScene {
 
   _resize() {
     const w = Math.max(1, this.container.clientWidth), h = Math.max(1, this.container.clientHeight);
+    this._w = w; this._h = h; // tamaño en CSS px, cacheado: leerlo en cada cuadro fuerza un reflow
     const Q = QUALITY[this.quality];
     const pr = Q.pixelRatio();
     this.renderer.setPixelRatio(pr);
@@ -850,15 +885,15 @@ export class WormScene {
     this._last = now;
     const dt = Math.min(0.1, rawDt);
     let active = false;
-    if (this._focusTarget) {
-      this.controls.target.lerp(this._focusTarget, 0.08);
-      if (this.controls.target.distanceTo(this._focusTarget) < 0.01) this._focusTarget = null;
-      active = true;
-    }
     if (this.controls.update()) active = true; // amortiguación / rotación automática
     if (this._animateLaser(dt)) active = true;
     if (this._collapse && this._collapse.update(dt)) active = true;
-    if (this._animateSwim(dt)) active = true;
+    // El nado solo, sin nada más moviéndose, se dibuja a 30 cuadros por segundo
+    this._sinceSwim += dt;
+    if (this._sinceSwim >= SWIM_FRAME || active || this._dirty) {
+      if (this._animateSwim(this._sinceSwim)) active = true;
+      this._sinceSwim = 0;
+    }
 
     if (this._pointerMoved) {
       this._pointerMoved = false;
@@ -877,15 +912,13 @@ export class WormScene {
       const p = this._tmpVec.copy(this.positions[this.labelIndex]);
       p.y += this.swimY(p.x);
       p.project(this.camera);
-      this.labelEl.style.display = p.z < 1 ? "block" : "none";
-      this.labelEl.style.left = `${(p.x * 0.5 + 0.5) * this.canvas.clientWidth}px`;
-      this.labelEl.style.top = `${(-p.y * 0.5 + 0.5) * this.canvas.clientHeight}px`;
+      const show = p.z < 1;
+      if (show !== this._labelShown) { this._labelShown = show; this.labelEl.style.display = show ? "block" : "none"; }
+      const x = (p.x * 0.5 + 0.5) * this._w, y = (-p.y * 0.5 + 0.5) * this._h;
+      this.labelEl.style.transform = `translate3d(${x}px, ${y}px, 0) translate(-50%, -160%)`;
     }
     if (QUALITY[this.quality].bloom) this.composer.render(dt);
     else this.renderer.render(this.scene, this.camera);
-    this._adaptQuality(rawDt, active || this._continuous);
+    this._adaptQuality(rawDt, active);
   }
-
-  /** main.js avisa cuando hay una animación en curso (para medir FPS sólo en ese caso). */
-  setContinuous(v) { this._continuous = v; }
 }
