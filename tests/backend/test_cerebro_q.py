@@ -1,4 +1,7 @@
-"""Pruebas del núcleo de Qollab (con Qiskit real si está instalado; si no, con la imitación de dev/)."""
+"""Pruebas del núcleo Python (con Qiskit real si está instalado; si no, con la imitación de tools/qollab_shim/).
+
+    python -m unittest discover -s tests/backend      (desde la raíz del repo)
+"""
 
 import json
 import math
@@ -6,18 +9,20 @@ import sys
 import unittest
 from pathlib import Path
 
-RAIZ = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(RAIZ))
+REPO = Path(__file__).resolve().parents[2]
+BACKEND = REPO / "backend"
+sys.path.insert(0, str(BACKEND))
+sys.path.insert(0, str(REPO / "tools"))
 try:
     import qiskit  # noqa: F401
     REAL = not getattr(qiskit, "SIMULADO", False)
 except ImportError:
-    sys.path.insert(0, str(RAIZ / "dev" / "qiskit_simulado"))
+    sys.path.insert(0, str(REPO / "tools" / "qollab_shim" / "qiskit_simulado"))
     REAL = False
 
 import os
 
-os.chdir(RAIZ)  # las rutas de datos son relativas a la raíz del proyecto, igual que en Qollab
+os.chdir(BACKEND)  # las rutas de datos ("data/...") son relativas a backend/, igual que a la raíz en Qollab
 
 import numpy as np
 
@@ -174,6 +179,32 @@ class TestCascada(unittest.TestCase):
         self.assertGreater(cur["medido"]["origen"][5], cur["coherente"]["origen"][5])
 
 
+class TestCircuitoInstantaneo(unittest.TestCase):
+    """circuito_json: el circuito del paso, sin ejecutarlo, para dibujarlo al instante en JS."""
+
+    def test_vistas_y_ideal(self):
+        p = {"centro": "AVM", "theta": math.pi / 2, "tau": 8, "pasos_trotter": 2}
+        c = json.loads(api.circuito_json(json.dumps(p)))
+        self.assertEqual(len(c["neuronas"]), cascada.TAMANO_VENTANA)
+        self.assertEqual(c["neuronas"], [fisica.acoplamientos()[1][i] for i in cascada.ventana(fisica.indice("AVM"))])
+        self.assertIn("PauliEvolution", c["compacta"]["ops"])
+        self.assertIn("rxx", c["completa"]["ops"])
+        self.assertNotIn("PauliEvolution", c["completa"]["ops"])
+        self.assertEqual(c["completa"]["ops"]["measure"], 10)
+        for i in c["completa"]["instrucciones"]:
+            self.assertTrue(all(0 <= q < 10 for q in i["q"]))
+        # el láser θ = π/2 deja la mitad de los shots sin excitación
+        self.assertAlmostEqual(c["ideal_vacio"], 0.5, places=4)
+        self.assertAlmostEqual(sum(c["ideal_marginales"]) + c["ideal_vacio"], 1.0, places=4)
+
+    def test_mismo_circuito_que_el_paso(self):
+        p = {"centro": "ALML", "tau": 5, "pasos_trotter": 1}
+        c = json.loads(api.circuito_json(json.dumps(p)))
+        r = json.loads(api.paso_json(backend_de_prueba(), json.dumps({**p, "shots": 50, "semilla": 1})))
+        self.assertEqual(c["neuronas"], r["ventana"])
+        self.assertEqual(c["compacta"]["ops"].get("measure"), r["ops_escritas"].get("measure"))
+
+
 @unittest.skipUnless(REAL, "las figuras usan Qiskit real (draw('mpl'), plot_histogram)")
 class TestFiguras(unittest.TestCase):
     SVG = "data:image/svg+xml;base64,"
@@ -202,16 +233,24 @@ class TestFiguras(unittest.TestCase):
 
 
 class TestReglasQollab(unittest.TestCase):
-    """Lo que exige el runtime de Qollab para un proyecto JS / Qiskit."""
+    """Lo que exige el runtime de Qollab para un proyecto JS / Qiskit, sobre la carpeta que se sube
+    (la arma tools/build_qollab.py)."""
 
-    SUBIR = ["index.html", "main.js", "main.css", "requirements.txt", "js", "cerebro_q", "data"]
+    @classmethod
+    def setUpClass(cls):
+        import tempfile
+
+        import build_qollab
+        cls._tmp = tempfile.TemporaryDirectory()
+        cls.RAIZ = Path(cls._tmp.name) / "qollab"
+        cls._archivos = build_qollab.construir(cls.RAIZ)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls._tmp.cleanup()
 
     def archivos(self):
-        out = []
-        for nombre in self.SUBIR:
-            p = RAIZ / nombre
-            out += [p] if p.is_file() else [f for f in p.rglob("*") if f.is_file() and "__pycache__" not in f.parts]
-        return out
+        return self._archivos
 
     def test_limites(self):
         fs = self.archivos()
@@ -220,15 +259,21 @@ class TestReglasQollab(unittest.TestCase):
             self.assertLessEqual(f.stat().st_size, 2 * 1024 * 1024, f.name)
 
     def test_index_solo_cuerpo(self):
-        html = (RAIZ / "index.html").read_text(encoding="utf-8").lower()
         import re
+        html = (self.RAIZ / "index.html").read_text(encoding="utf-8").lower()
+        # El workspace de Qollab guarda index.html con este envoltorio (sólo main.css y main.js);
+        # fuera de él, nada de <script>, <link> ni <style> propios.
+        envoltorio = re.match(r'\s*<head>\s*<link rel="stylesheet" href="main.css">\s*'
+                              r'<script type="module" src="main.js"></script>\s*</head>\s*<body>', html)
+        if envoltorio:
+            html = html[envoltorio.end():].replace("</body>", "")
         for etiqueta in ("script", "html", "head", "body", "link", "style"):
             self.assertNotRegex(html, rf"<{etiqueta}[\s>]")
         self.assertIn("this effort is supported by qollab &amp; ionq.", html)
 
     def test_imports_de_js(self):
         import re
-        for f in [RAIZ / "main.js", *(RAIZ / "js").glob("*.js")]:
+        for f in [self.RAIZ / "main.js", *(self.RAIZ / "js").glob("*.js")]:
             for spec in re.findall(r"from\s+[\"']([^\"']+)[\"']", f.read_text(encoding="utf-8")):
                 ok = spec.startswith("./") or spec.startswith("../") or spec in ("three", "cerebro_q.api") \
                     or spec.startswith("three/addons/")
@@ -238,8 +283,8 @@ class TestReglasQollab(unittest.TestCase):
     def test_rutas_literales_y_sin_secretos(self):
         from cerebro_q import datos
         for ruta in (datos.RUTA_NEURONAS, datos.RUTA_SINAPSIS, datos.RUTA_CUERPO):
-            self.assertTrue((RAIZ / ruta).is_file(), ruta)
-            self.assertIn(f'"{ruta}"', (RAIZ / "cerebro_q" / "datos.py").read_text(encoding="utf-8"))
+            self.assertTrue((self.RAIZ / ruta).is_file(), ruta)
+            self.assertIn(f'"{ruta}"', (self.RAIZ / "cerebro_q" / "datos.py").read_text(encoding="utf-8"))
         for f in self.archivos():
             if f.suffix in (".py", ".js", ".html", ".css", ".txt"):
                 texto = f.read_text(encoding="utf-8")

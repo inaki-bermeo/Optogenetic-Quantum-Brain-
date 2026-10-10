@@ -1,6 +1,6 @@
 // SÓLO PARA DESARROLLO LOCAL (no se sube a Qollab).
 // Imita el módulo Python `cerebro_q.api` que Qollab expone a JavaScript: cada función
-// tiene .callPromising(...) y aquí se resuelve con un POST al servidor de dev/servidor.py.
+// tiene .callPromising(...) y aquí se resuelve con un POST al servidor de tools/dev_server.py.
 const BACKEND_TOKEN = "__backend__";
 
 async function call(nombre, args) {
@@ -25,3 +25,5 @@ export const ejecutar_json = fn("ejecutar_json");
 export const paso_json = fn("paso_json");
 export const comparacion_json = fn("comparacion_json");
 export const figuras_json = fn("figuras_json");
+export const circuito_json = fn("circuito_json");
+export const precargar_figuras = fn("precargar_figuras");

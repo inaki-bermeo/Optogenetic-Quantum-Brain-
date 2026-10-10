@@ -1,18 +1,21 @@
 """Arnés de desarrollo: prueba la página de Qollab en tu computador, sin Qollab.
 
-    python dev/servidor.py            → http://127.0.0.1:8765
-    python dev/servidor.py --puerto 9000
+    python tools/dev_server.py            → http://127.0.0.1:8765
+    python tools/dev_server.py --puerto 9000
+
+Sirve el código fuente directamente (frontend/ y backend/), así que basta recargar la página
+después de editar JS; los cambios en Python requieren reiniciar el servidor.
 
 Qué imita:
   * Qollab pega index.html dentro del <body>, carga main.css y main.js, y deja importar
     `three` y los módulos Python por nombre. Aquí se arma esa página con un importmap:
-    `three` → three.js vendorizado del prototipo y `cerebro_q.api` → dev/puente_api.js,
-    que llama a cerebro_q/api.py por HTTP (mismas funciones, mismos JSON).
+    `three` → three.js 0.186.1 (la versión de Qollab, desde jsDelivr) y `cerebro_q.api` →
+    tools/qollab_shim/puente_api.js, que llama a backend/cerebro_q/api.py por HTTP.
   * `backend`: con Qiskit instalado se usa BasicSimulator; si no, el backend numpy de
-    dev/qiskit_simulado. Con ?backend=ionq o ?backend=qpu se imita un backend de IonQ
-    (simulador remoto u hardware) para probar la regla de "un job por ejecución".
+    tools/qollab_shim/qiskit_simulado. Con ?backend=ionq o ?backend=qpu se imita un backend
+    de IonQ (simulador remoto u hardware) para probar la regla de "un job por ejecución".
 
-Nada de esta carpeta se sube a Qollab (ver docs/QOLLAB.md).
+Nada de tools/ se sube a Qollab (ver docs/development.md).
 """
 
 from __future__ import annotations
@@ -28,22 +31,26 @@ from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-RAIZ = Path(__file__).resolve().parent.parent  # qollab/
-VENDOR = RAIZ.parent / "frontend" / "vendor" / "three"
-os.chdir(RAIZ)  # las rutas literales de cerebro_q/datos.py son relativas a la raíz del proyecto
-sys.path.insert(0, str(RAIZ))
+REPO = Path(__file__).resolve().parent.parent
+FRONTEND = REPO / "frontend"
+BACKEND = REPO / "backend"
+SHIM = REPO / "tools" / "qollab_shim"
+THREE = "https://cdn.jsdelivr.net/npm/three@0.186.1"
+os.chdir(BACKEND)  # las rutas literales de cerebro_q/datos.py ("data/...") son relativas a backend/
+sys.path.insert(0, str(BACKEND))
 try:
     import qiskit  # noqa: F401
 
     QISKIT_REAL = not getattr(qiskit, "SIMULADO", False)
 except ImportError:
-    sys.path.insert(0, str(RAIZ / "dev" / "qiskit_simulado"))
+    sys.path.insert(0, str(SHIM / "qiskit_simulado"))
     QISKIT_REAL = False
 
 from cerebro_q import api  # noqa: E402
 
 FUNCIONES = {"conectoma_json", "walk_json", "cuerpo_glb", "microcircuitos_json", "simular_json",
-             "backend_json", "ejecutar_json", "paso_json", "comparacion_json", "figuras_json"}
+             "backend_json", "ejecutar_json", "paso_json", "comparacion_json", "figuras_json",
+             "circuito_json", "precargar_figuras"}
 
 
 def crear_backend(tipo: str):
@@ -74,12 +81,12 @@ def crear_backend(tipo: str):
 
 
 def pagina() -> str:
-    cuerpo = (RAIZ / "index.html").read_text(encoding="utf-8")
+    cuerpo = (FRONTEND / "index.html").read_text(encoding="utf-8")
     cuerpo = re.sub(r"<script\b.*?</script>", "", cuerpo, flags=re.S | re.I)  # Qollab no ejecuta <script>
     imports = {
-        "three": "/vendor/three/three.module.js",
-        "three/addons/": "/vendor/three/addons/",
-        "cerebro_q.api": "/dev/puente_api.js",
+        "three": f"{THREE}/build/three.module.js",
+        "three/addons/": f"{THREE}/examples/jsm/",
+        "cerebro_q.api": "/__shim__/puente_api.js",
     }
     return f"""<!doctype html>
 <html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
@@ -111,15 +118,15 @@ class Manejador(SimpleHTTPRequestHandler):
         ruta = urlparse(self.path).path
         if ruta in ("/", "/index.html"):
             return self._enviar(200, pagina().encode(), "text/html; charset=utf-8")
-        if ruta.startswith("/vendor/three/"):
-            archivo = (VENDOR / ruta[len("/vendor/three/"):]).resolve()
-            base = VENDOR.resolve()
+        if ruta.startswith("/__shim__/"):
+            base = SHIM.resolve()
+            archivo = (SHIM / ruta[len("/__shim__/"):]).resolve()
+        elif ruta.startswith("/data/") or ruta.startswith("/cerebro_q/"):
+            # Igual que en Qollab, JS no puede leer los archivos del proyecto Python
+            return self._enviar(403, b"JS no puede leer archivos del proyecto en Qollab", "text/plain")
         else:
-            archivo = (RAIZ / ruta.lstrip("/")).resolve()
-            base = RAIZ.resolve()
-            # Igual que en Qollab, JS no puede leer los datos del proyecto
-            if archivo.is_relative_to(RAIZ / "data"):
-                return self._enviar(403, b"JS no puede leer archivos del proyecto en Qollab", "text/plain")
+            base = FRONTEND.resolve()
+            archivo = (FRONTEND / ruta.lstrip("/")).resolve()
         if not archivo.is_relative_to(base) or not archivo.is_file():
             return self._enviar(404, b"no encontrado", "text/plain")
         tipo = mimetypes.guess_type(archivo.name)[0] or "application/octet-stream"
@@ -149,7 +156,7 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--puerto", type=int, default=8765)
     a = ap.parse_args()
-    print(f"Qiskit {'real' if QISKIT_REAL else 'simulado (dev/qiskit_simulado)'} · http://127.0.0.1:{a.puerto}")
+    print(f"Qiskit {'real' if QISKIT_REAL else 'simulado (tools/qollab_shim/qiskit_simulado)'} · http://127.0.0.1:{a.puerto}")
     print("  ?backend=ionq  imita el simulador remoto de IonQ   ?backend=qpu  imita hardware IonQ")
     ThreadingHTTPServer(("127.0.0.1", a.puerto), Manejador).serve_forever()
 
