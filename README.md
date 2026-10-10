@@ -4,7 +4,7 @@
 
 This effort is supported by Qollab & IonQ.
 
-🎬 **Demo video (2–3 min):** [add the public link] · 💻 **Code (MIT):** https://github.com/JoaquinQu/Cerebro-Cu-ntico-Optogenetico · 📖 **Full theory (Spanish):** [TEORIA.md](https://github.com/inaki-bermeo/Optogenetic-Quantum-Brain-/blob/0c3e4e5/docs/TEORIA.md)
+🎬 **Demo video (2–3 min):** [add the public link] · 💻 **Code (MIT):** https://github.com/JoaquinQu/Cerebro-Cu-ntico-Optogenetico · 📖 **Full theory (Spanish):** [docs/theory.md](https://github.com/inaki-bermeo/Optogenetic-Quantum-Brain-/blob/main/docs/theory.md)
 
 ![The 3D C. elegans worm: ten neurons glow in superposition around the neuron hit by the laser, just before the measurement collapses them onto one.](https://raw.githubusercontent.com/inaki-bermeo/Optogenetic-Quantum-Brain-/main/docs/card/hero.png)
 
@@ -21,7 +21,7 @@ This effort is supported by Qollab & IonQ.
 
 1. Press **Run** and choose **Built-in simulator** (free and instant), then press the start button on the intro screen.
 2. In **Laser & measure**, keep the default neuron **AVM** (a touch-sensing neuron) and press **Fire laser**. The spike starts hopping along the worm and leaves a trail.
-3. Open **Lab settings** and compare **τ = 8** (the spike travels) with **τ = 2** (it barely moves: the Zeno effect). Lower **θ** and the laser sometimes fails to fire.
+3. Move the **τ** slider (time between measurements) and compare **τ = 8** (the spike travels) with **τ = 2** (it barely moves: the Zeno effect). Lower **θ** and the laser sometimes fails to fire. Steps and shots per circuit are in **Lab settings**.
 4. Switch to the **The Qiskit circuit** tab to see the exact circuit of any step, gate by gate, next to the counts the backend returned.
 5. *Optional:* press **Stop**, then **Run** with **IonQ Forte 1 (Remote simulator)**, also free. IonQ allows one job per Run, so the laser runs one circuit.
 
@@ -51,7 +51,7 @@ This effort is supported by Qollab & IonQ.
 - The exact `QuantumCircuit` of any step, or of the next laser shot before it runs, drawn instantly.
 - **All gates** shows the laser, every `RXX`·`RYY` hop of the Trotter decomposition and the measurements. **Compact** shows the same evolution as one `e^(−iτH)` block.
 - The counts returned by the backend, and the shot the cascade picked at random.
-- Qiskit's own `draw("mpl")` figure and `plot_histogram` load in the background.
+- Qiskit's own `draw("mpl")` figure and `plot_histogram` (matplotlib loads the first time you open this panel, about 30 s).
 
 ---
 
@@ -91,72 +91,79 @@ Each step shows the equation, what it means in plain words, and what every symbo
 
 ### 1. The connectome becomes a matrix J
 
-```
-W_ij = 1 if neurons i and j share at least one synapse, 0 otherwise
-J    = W / λ_max(W)
-```
+$$
+W_{ij} = \begin{cases} 1 & \text{if neurons } i \text{ and } j \text{ share at least one synapse} \\ 0 & \text{otherwise} \end{cases}
+\qquad
+J = \frac{W}{\lambda_{\max}(W)}
+$$
 
 **In plain words.** We write down who is connected to whom. Every connection counts the same (binary weights), and a connection goes both ways because a Hamiltonian has to be symmetric. Dividing by the largest eigenvalue scales the matrix so its strength is 1. Then time is measured in natural units, 1/γ.
 
-**Where:** *i, j* are neurons (302 in total); *λ_max* is the largest eigenvalue of *W* (about 32.8). Data: the chemical and electrical synapses described in *Where the wiring comes from*.
+**Where:** $i, j$ are neurons (302 in total); $\lambda_{\max}$ is the largest eigenvalue of $W$ (about 32.8). Data: the chemical and electrical synapses described in *Where the wiring comes from*.
 
 ### 2. The laser is a rotation
 
-```
-RX(θ)|0⟩ = cos(θ/2)|0⟩ − i·sin(θ/2)|1⟩      →      P(fire) = sin²(θ/2)
-```
+$$
+R_X(\theta)\,|0\rangle = \cos\tfrac{\theta}{2}\,|0\rangle - i\,\sin\tfrac{\theta}{2}\,|1\rangle
+\qquad\Longrightarrow\qquad
+P(\text{fire}) = \sin^2\tfrac{\theta}{2}
+$$
 
 **In plain words.** The light pulse rotates the qubit of the illuminated neuron from "rest" towards "active". A full dose (θ = π) always fires it. Half the dose (θ = π/2) fires it in half of the shots. If it does not fire, the measurement finds no excitation and the cascade stops.
 
-**Where:** *θ* is the light dose (the **θ** slider). In a real experiment it is the light intensity times the pulse length. The laser dose applies to the first circuit; in later steps the neuron that fired starts fully excited.
+**Where:** $\theta$ is the light dose (the **θ** slider). In a real experiment it is the light intensity times the pulse length. The laser dose applies to the first circuit; in later steps the neuron that fired starts fully excited.
 
 ### 3. The synapses are an XY Hamiltonian
 
-```
-H = γ · Σ_(i<j) J_ij · (X_i X_j + Y_i Y_j) / 2
-  = γ · Σ_(i<j) J_ij · (σ⁺_i σ⁻_j + σ⁻_i σ⁺_j)
-```
+$$
+H = \gamma \sum_{i<j} J_{ij}\,\frac{X_i X_j + Y_i Y_j}{2}
+  = \gamma \sum_{i<j} J_{ij}\left(\sigma^+_i \sigma^-_j + \sigma^-_i \sigma^+_j\right)
+$$
 
 **In plain words.** Each synapse can pass the excitation from one neuron to the other: σ⁻ takes it away from one neuron and σ⁺ puts it on the other. The excitation is never created or destroyed, only moved. That conservation law is what makes the error mitigation in step 7 possible.
 
-**Where:** *X, Y* are Pauli gates on each qubit; *σ⁺, σ⁻* raise and lower a qubit; *γ* is the strength of every synapse (**Coupling γ** in Lab settings; doubling it makes everything twice as fast).
+**Where:** $X, Y$ are Pauli gates on each qubit; $\sigma^+, \sigma^-$ raise and lower a qubit; $\gamma$ is the strength of every synapse (**Coupling γ** in Lab settings; doubling it makes everything twice as fast).
 
 ### 4. The quantum walk and the central result
 
-```
-P_k(t) = sin²(θ/2) · | [e^(−iγJt)]_kj |²
-```
+$$
+P_k(t) = \sin^2\tfrac{\theta}{2}\;\Big|\big[e^{-i\gamma J t}\big]_{kj}\Big|^2
+$$
 
 **In plain words.** After the laser hits neuron *j*, the excitation spreads as a wave through the connectome: a **continuous-time quantum walk** (Farhi & Gutmann, 1998). The wave reaches neuron *k* along every possible path at once. Each path carries an amplitude, a number with a phase, and the amplitudes add up. Where they reinforce, the neuron lights up; where they cancel, it stays dark even if it is right next door. The probability is the squared size of the total amplitude, scaled by the chance that the laser fired at all.
 
-**Where:** *P_k(t)* is the probability that neuron *k* is the one active at time *t*; *e^(−iγJt)* is the evolution operator; its entry *[ ]_kj* is the amplitude to go from *j* to *k*. The page uses this formula as the theory that every measured circuit is compared with.
+**Where:** $P_k(t)$ is the probability that neuron $k$ is the one active at time $t$; $e^{-i\gamma J t}$ is the evolution operator; its entry $[\,\cdot\,]_{kj}$ is the amplitude to go from $j$ to $k$. The page uses this formula as the theory that every measured circuit is compared with.
 
 ### 5. From the Hamiltonian to a circuit
 
-```
-hop(α) = e^(−iα(XX+YY)/2) = RXX(α) · RYY(α)
-e^(−iτH) ≈ second-order Trotter–Suzuki product of hops, error O(τ³/r²)
-```
+$$
+\mathrm{hop}(\alpha) = e^{-i\alpha (XX+YY)/2} = R_{XX}(\alpha)\,R_{YY}(\alpha),
+\qquad
+e^{-i\tau H} \approx \Big(\prod_{\text{synapses}} \mathrm{hop}\big(\tfrac{\alpha}{2}\big) \prod_{\text{reversed}} \mathrm{hop}\big(\tfrac{\alpha}{2}\big)\Big)^{r},
+\quad \text{error } O\!\left(\tfrac{\tau^3}{r^2}\right)
+$$
 
 **In plain words.** A quantum computer cannot apply *e^(−iτH)* in one go. We cut the time τ into *r* small slices and apply one small "hop" per synapse in each slice. That is the Trotter–Suzuki approximation: more slices means smaller error but more gates, and every gate adds hardware noise. The page uses Qiskit's own `PauliEvolutionGate` with `SuzukiTrotter(order=2)`, with 1 slice for τ ≤ 4.5, 2 for τ ≤ 9 and 3 above.
 
-**Where:** *α* = γ·J_ij·(τ/r) is the angle of one hop; *RXX, RYY* are standard two-qubit Qiskit gates. On IonQ hardware each hop compiles to two native ZZ gates, and the all-to-all connectivity of trapped ions means no extra SWAP gates are needed.
+**Where:** $\alpha = \gamma J_{ij}\,\tau / r$ is the angle of one hop; $R_{XX}, R_{YY}$ are standard two-qubit Qiskit gates; $r$ is the number of Trotter slices. On IonQ hardware each hop compiles to two native ZZ gates, and the all-to-all connectivity of trapped ions means no extra SWAP gates are needed.
 
 ### 6. Measurement and the spike cascade
 
-```
-window = the neuron that fired + its 9 neighbours with the most synapses   (10 qubits)
-one step = RX(θ) → e^(−iτH_window) → measure   ·   next neuron = the 1 in a random shot
-```
+$$
+|\psi_{\text{step}}\rangle = e^{-i\tau H_{\text{window}}}\,R_X(\theta)_{\text{centre}}\,|0\rangle^{\otimes 10}
+\qquad\longrightarrow\qquad \text{measure all 10 qubits} \;\longrightarrow\; \text{next centre} = \text{the neuron at } 1
+$$
+
+The window is the neuron that fired plus its 9 neighbours with the most synapses (10 qubits).
 
 **In plain words.** The full worm has 302 neurons, too many for one circuit, so each step simulates a 10-neuron window around the neuron that just fired. Measuring **collapses** the wave onto one neuron, which becomes the next center. The interference happens *inside* each step; the measurement erases it between steps. Each jump is quantum, but the chain of jumps behaves like a classical random walk: the quantum-to-classical transition, live.
 
-**The quantum Zeno effect.** In a short time τ, the chance of leaving the center grows like (γJτ)², so measuring very often keeps resetting the wave before it can move. Simulated cascades from AVM show it clearly:
+**The quantum Zeno effect.** In a short time $\tau$, the chance of leaving the center grows like $(\gamma J \tau)^2$, so measuring very often keeps resetting the wave before it can move. Simulated cascades from AVM (200 cascades of 20 steps, exact walk in each window; reproduce with `tools/zeno_analysis.py`) show it clearly:
 
 | τ (time between measurements) | Steps where the spike stays put | Different neurons visited in 20 steps |
 | --- | --- | --- |
-| 3 | 92 % | 2 |
-| 5 | 81 % | 4 |
+| 3 | 93 % | 2 |
+| 5 | 81 % | 5 |
 | 8 | 60 % | 8 |
 
 **Honest limit.** A window is cut off from the other ~290 neurons, so with a long τ each step is the walk on an isolated 10-neuron circuit rather than on the whole worm.
@@ -177,7 +184,7 @@ one step = RX(θ) → e^(−iτH_window) → measure   ·   next neuron = the 1 
 
 It also walks through the real steps needed to take the physics to hardware: Trotterization and its error, transpilation for the backend, and error mitigation through a conservation law.
 
-**Honest about quantum advantage.** With a single laser the problem is classically simulable, which is how the page computes the theory for all 302 neurons. The hardware does not speed it up; it demonstrates the physics and shows how noise degrades it. The classically hard regime appears with several simultaneous lasers (interacting "hard-core bosons"), and the Trotter circuit already supports that case.
+**Honest about quantum advantage.** With a single laser the problem is classically simulable: the exact walk on all 302 neurons takes milliseconds on a laptop. The hardware does not speed it up; it demonstrates the physics and shows how noise degrades it. The classically hard regime appears with several simultaneous lasers (interacting "hard-core bosons"), and the Trotter circuit already supports that case.
 
 ## Backends
 
@@ -206,14 +213,15 @@ It also walks through the real steps needed to take the physics to hardware: Tro
 ## Replicate and extend
 
 - **Code and data:** everything is in this project and in the public repository (MIT).
-- **Tests:** `tests/` has 24 automated tests. They check, among other things:
+- **Tests:** `tests/backend/` has 24 automated tests, plus a browser smoke test in `tests/e2e/`. They check, among other things:
   - that the single-excitation XY dynamics equals the walk;
-  - Trotter convergence and exactness of the Givens construction;
+  - Trotter convergence;
   - `PauliEvolutionGate` against the theory;
-  - post-selection and the one-job-per-Run rule;
-  - the Qiskit figures.
-- **Run it locally:** `dev/servidor.py` reproduces the Qollab environment on your computer.
-- **Theory:** [TEORIA.md](https://github.com/inaki-bermeo/Optogenetic-Quantum-Brain-/blob/0c3e4e5/docs/TEORIA.md) and the LaTeX notes in [docs/teoria_tex/](https://github.com/inaki-bermeo/Optogenetic-Quantum-Brain-/tree/0c3e4e5/docs/teoria_tex) (in Spanish, archived in the repository history).
+  - post-selection and the one-job-per-step rule;
+  - the τ table above (quantum Zeno effect);
+  - the Qiskit figures and Qollab's file rules.
+- **Run it locally:** `tools/dev_server.py` reproduces the Qollab environment on your computer (see `docs/development.md`).
+- **Theory:** [docs/theory.md](https://github.com/inaki-bermeo/Optogenetic-Quantum-Brain-/blob/main/docs/theory.md) and the LaTeX notes in [docs/theory_tex/](https://github.com/inaki-bermeo/Optogenetic-Quantum-Brain-/tree/main/docs/theory_tex) (in Spanish); the cascade design in [docs/cascade.md](https://github.com/inaki-bermeo/Optogenetic-Quantum-Brain-/blob/main/docs/cascade.md).
 
 **Ideas to extend it:**
 
@@ -248,17 +256,17 @@ It also walks through the real steps needed to take the physics to hardware: Tro
 
 ## Repository layout
 
-This repository mirrors the Qollab workspace. The page only runs inside Qollab, which provides Pyodide, Qiskit and the `backend` object (see `RUNNING.md`); `dev/` reproduces that environment locally.
+The page runs inside Qollab (Pyodide + Qiskit + the `backend` object, see `RUNNING.md`). The repo keeps frontend and backend apart; `tools/build_qollab.py` flattens them into the folder that is uploaded.
 
 ```
-index.html, main.js, main.css   the page (three.js scene, panels, Web Audio)
-js/                             escena.js (3D worm), graficos.js (SVG charts), python.js (Pyodide bridge), sonido.js (sound)
-cerebro_q/                      Python core: data, physics, Qiskit circuits, spike cascade, analysis, mpl figures, api
-data/                           connectome (Cook 2019), neuron positions (OpenWorm), gusano.glb
-tests/                          unit tests (python -m unittest discover -s tests)
-dev/                            local harness: servidor.py (http://127.0.0.1:8765) and a Playwright smoke test
-docs/card/                      screenshots used by this page
+frontend/      the page: index.html, main.js, main.css, js/ (3D scene, charts, Pyodide bridge, sound)
+backend/       cerebro_q/ (Python core run in the browser), data/ (connectome, neuron positions, 3D body), requirements.txt
+tests/         backend/ unit tests, e2e/ browser smoke test
+tools/         build_qollab.py, dev_server.py (local Qollab harness), optimize_glb.py, zeno_analysis.py
+docs/          architecture, development, cascade design, theory (Spanish), 3D model, LaTeX notes, card screenshots
 ```
+
+Quick start: `python tools/dev_server.py` → http://127.0.0.1:8765, and `python -m unittest discover -s tests/backend`. Details in [docs/development.md](docs/development.md).
 
 ---
 
