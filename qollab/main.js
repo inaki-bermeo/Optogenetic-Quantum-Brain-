@@ -215,6 +215,7 @@ async function fire() {
   showSourceOnly();
   scene.fireLaser(idx0, Math.sin(theta / 2) ** 2);
   sound.laser(Math.sin(theta / 2) ** 2);
+  scene.setSwim(false); // durante la medición las neuronas quedan en su posición real
   sound.fondoOn();
   narrate("Step 1 · laser", `The laser applies <b>RX(${fmtTheta(theta)})</b> to the qubit of <b>${esc(centro)}</b>. ` +
     `Sending its 10-qubit circuit to <b>${esc(state.backend.nombre)}</b>…`);
@@ -257,6 +258,7 @@ async function fire() {
   } finally {
     cascade.running = false;
     sound.pararFondo();
+    setTimeout(() => { if (!cascade.running) scene.setSwim(true); }, 2500);
     $("casc-stop").disabled = true;
     const bloqueado = state.backend.ionq && state.jobsSent >= 1;
     $("fire-btn").disabled = bloqueado;
@@ -666,6 +668,8 @@ function bindUI() {
     if (auto) toast(`Graphics quality set to "${QUALITY[q].label}" to keep it smooth`);
   });
   $("autorotate").addEventListener("change", () => scene.setAutoRotate($("autorotate").checked));
+  $("swim").addEventListener("change", () => scene.setSwimEnabled($("swim").checked));
+  if (REDUCED) { $("swim").checked = false; $("swim").disabled = true; }
 
   // sonido
   $("sound-btn").addEventListener("click", () => {

@@ -55,6 +55,30 @@ const S_AP = 0.02; // µm → unidades de escena (eje anteroposterior)
 const S_TR = 0.028; // ejes transversales (×1.4 respecto del real, para leer mejor el volumen)
 const GLTF_SCALE = 0.01; // 1 unidad glTF = 100 µm  (ver docs/MODELO_3D.md)
 
+// Nado: onda transversal y = A·(0.3 + 0.7·s)·sin(k(x − x0) − ωt), s = 0 en la cabeza y 1 en la cola.
+const SWIM_AMP = 0.13;
+const SWIM_GLSL = /* glsl */`
+  uniform float uSwimAmp; uniform float uSwimT; uniform float uSwimK; uniform float uSwimX0; uniform float uSwimL; uniform float uSwimW;
+  float wormWave(float x){
+    float s = clamp((x - uSwimX0) / uSwimL, 0.0, 1.0);
+    return uSwimAmp * (0.3 + 0.7 * s) * sin(uSwimK * (x - uSwimX0) - uSwimW * uSwimT);
+  }
+  float wormSlope(float x){ return (wormWave(x + 0.01) - wormWave(x - 0.01)) / 0.02; }
+`;
+const PROJECT_SWIM = /* glsl */`
+  vec4 mvPosition = vec4( transformed, 1.0 );
+  #ifdef USE_BATCHING
+    mvPosition = batchingMatrix * mvPosition;
+  #endif
+  #ifdef USE_INSTANCING
+    mvPosition = instanceMatrix * mvPosition;
+  #endif
+  vec4 swimW = modelMatrix * mvPosition;
+  swimW.y += wormWave( swimW.x );
+  mvPosition = viewMatrix * swimW;
+  gl_Position = projectionMatrix * mvPosition;
+`;
+
 export const QUALITY = {
   alta: { label: "High", pixelRatio: () => Math.min(window.devicePixelRatio, 1.75), bloom: true, bloomScale: 1 },
   media: { label: "Medium", pixelRatio: () => 1, bloom: true, bloomScale: 0.5 },
@@ -106,6 +130,12 @@ export class WormScene {
     this.quality = this.autoQuality ? (window.devicePixelRatio > 1.5 ? "media" : "alta") : quality;
 
     this.reducedMotion = REDUCED_MOTION;
+    // uniforms compartidos por todos los materiales que ondulan
+    this.swimU = {
+      uSwimAmp: { value: 0 }, uSwimT: { value: 0 }, uSwimK: { value: 1 }, uSwimX0: { value: 0 }, uSwimL: { value: 1 },
+      uSwimW: { value: (2 * Math.PI) / 3.2 }, // un ciclo cada 3.2 s: lento y suave
+    };
+    this.swim = { enabled: !REDUCED_MOTION, target: REDUCED_MOTION ? 0 : 1, level: 0 };
     this.glbBytes = null;
     this._addStars();
     this._bindEvents();
@@ -140,7 +170,7 @@ export class WormScene {
     this.baseColors = neurons.map((d) => TYPE_COLOR[d.type] ?? TYPE_COLOR.unknown);
 
     // Neuronas (una sola llamada de dibujo)
-    const mat = new THREE.MeshBasicMaterial({ toneMapped: false });
+    const mat = this._sw(new THREE.MeshBasicMaterial({ toneMapped: false }));
     this.mesh = new THREE.InstancedMesh(new THREE.SphereGeometry(0.055, 14, 10), mat, n);
     this.mesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(n * 3), 3);
     this.scene.add(this.mesh);
@@ -160,10 +190,10 @@ export class WormScene {
     const eg = new THREE.BufferGeometry();
     eg.setAttribute("position", new THREE.BufferAttribute(ep, 3));
     eg.setAttribute("color", new THREE.BufferAttribute(new Float32Array(m * 6), 3));
-    this.edgeLines = new THREE.LineSegments(eg, new THREE.LineBasicMaterial({
+    this.edgeLines = new THREE.LineSegments(eg, this._sw(new THREE.LineBasicMaterial({
       vertexColors: true, transparent: true, opacity: 0.4, blending: THREE.AdditiveBlending,
       depthWrite: false, toneMapped: false,
-    }));
+    })));
     this.scene.add(this.edgeLines);
 
     this.ringGroup = new THREE.Group();
@@ -179,24 +209,52 @@ export class WormScene {
   }
 
   // ------------------------------------------------------------- cuerpo 3D
-  _bodyMaterial(color, rim, strength = 1) {
+  /**
+   * Material del cuerpo con aspecto de microscopio de fluorescencia (aditivo, translúcido):
+   * borde brillante (Fresnel), relleno suave con luz desde arriba, anillos de la cutícula a lo
+   * largo del eje anteroposterior y un grano fino (opcional, para el intestino). Ondula con el nado.
+   */
+  _bodyMaterial({ color, rim, strength = 1, fill = 0.18, annuli = 0, grain = 0, side = THREE.DoubleSide } = {}) {
     return new THREE.ShaderMaterial({
-      transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
-      uniforms: { uColor: { value: new THREE.Color(color) }, uRim: { value: new THREE.Color(rim) }, uK: { value: strength } },
+      transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side,
+      uniforms: {
+        uColor: { value: new THREE.Color(color) }, uRim: { value: new THREE.Color(rim) },
+        uK: { value: strength }, uFill: { value: fill }, uAnn: { value: annuli }, uGrain: { value: grain },
+        ...this.swimU,
+      },
       vertexShader: /* glsl */`
-        varying vec3 vN; varying vec3 vV;
+        ${SWIM_GLSL}
+        varying vec3 vN; varying vec3 vV; varying vec3 vW;
         void main(){
-          vec4 mv = modelViewMatrix * vec4(position,1.0);
-          vN = normalize(normalMatrix * normal); vV = normalize(-mv.xyz);
+          vec4 w = modelMatrix * vec4(position, 1.0);
+          float dy = wormWave(w.x);
+          w.y += dy;
+          // la normal se inclina con la pendiente de la onda (el cuerpo se curva, no sólo se traslada)
+          vec3 n = normalize(mat3(modelMatrix) * normal);
+          n = normalize(n - vec3(wormSlope(w.x) * n.y, 0.0, 0.0));
+          vW = w.xyz;
+          vec4 mv = viewMatrix * w;
+          vN = normalize(mat3(viewMatrix) * n); vV = normalize(-mv.xyz);
           gl_Position = projectionMatrix * mv;
         }`,
       fragmentShader: /* glsl */`
-        uniform vec3 uColor; uniform vec3 uRim; uniform float uK;
-        varying vec3 vN; varying vec3 vV;
+        uniform vec3 uColor; uniform vec3 uRim; uniform float uK; uniform float uFill; uniform float uAnn; uniform float uGrain;
+        varying vec3 vN; varying vec3 vV; varying vec3 vW;
+        float hash(vec3 p){ return fract(sin(dot(p, vec3(12.9898, 78.233, 37.719))) * 43758.5453); }
         void main(){
-          float f = pow(1.0 - abs(dot(normalize(vN), normalize(vV))), 2.6);
-          vec3 c = mix(uColor, uRim, f) * (0.05 + 0.4*f) * uK;
-          gl_FragColor = vec4(c, (0.16*f + 0.015) * uK);
+          vec3 N = normalize(vN), V = normalize(vV);
+          float ndv = abs(dot(N, V));
+          float fres = pow(1.0 - ndv, 2.4);
+          // luz suave desde arriba-adelante: da volumen al tubo
+          float lit = 0.45 + 0.55 * max(dot(N, normalize(vec3(-0.25, 0.85, 0.45))), 0.0);
+          // anillos de la cutícula (se desvanecen cuando son más finos que un píxel)
+          float f = vW.x * uAnn;
+          float aa = clamp(1.0 - 1.6 * fwidth(f), 0.0, 1.0);
+          float ann = mix(1.0, 0.8 + 0.2 * smoothstep(0.15, 0.85, 0.5 + 0.5 * cos(6.2831853 * f)), aa * step(0.001, uAnn));
+          float g = uGrain > 0.0 ? mix(1.0, 0.55 + 0.9 * hash(floor(vW * 14.0)), uGrain) : 1.0;
+          vec3 c = uColor * uFill * lit * g + uRim * fres * (0.55 + 0.45 * lit);
+          c *= ann;
+          gl_FragColor = vec4(c * uK, 1.0);
         }`,
     });
   }
@@ -207,6 +265,7 @@ export class WormScene {
       if (!this.glbBytes) throw new Error("no .glb model");
       const gltf = await new GLTFLoader().parseAsync(this.glbBytes, "");
       const group = new THREE.Group();
+      let cuerpo = null, faringe = null;
       gltf.scene.updateMatrixWorld(true);
       gltf.scene.traverse((obj) => {
         if (!obj.isMesh) return;
@@ -221,28 +280,116 @@ export class WormScene {
         geo.deleteAttribute("normal");
         geo.computeVertexNormals();
         const name = `${obj.name} ${obj.material?.name ?? ""}`.toLowerCase();
-        const inner = /faringe|pharynx|intestin|gut/.test(name);
-        group.add(new THREE.Mesh(geo, inner
-          ? this._bodyMaterial("#4fb3ff", "#bff3ff", 0.75)
-          : this._bodyMaterial("#2a6dff", "#7fe8ff", 1.0)));
+        if (/faringe|pharynx/.test(name)) faringe = geo; else if (!cuerpo) cuerpo = geo;
       });
-      if (!group.children.length) throw new Error("empty glb");
+      if (!cuerpo) throw new Error("empty glb");
+      this._buildAnatomy(group, cuerpo, faringe);
       this.body = group;
       this.scene.add(group);
       this.bodySource = "glb";
     } catch (err) {
       // 2) Respaldo: cuerpo aproximado generado aquí mismo
       console.info("Using procedural body:", err?.message ?? err);
-      this._buildProceduralBody();
+      const group = new THREE.Group();
+      this._buildAnatomy(group, this._proceduralBodyGeometry(), null);
+      this.body = group;
+      this.scene.add(group);
       this.bodySource = "procedural";
     }
     this.requestRender();
   }
 
-  _buildProceduralBody() {
+  /** Cuerpo (dos capas: pared interna tenue + cutícula con anillos), faringe e intestino. */
+  _buildAnatomy(group, cuerpo, faringe) {
+    cuerpo.computeBoundingBox();
+    const bb = cuerpo.boundingBox;
+    this.bodyBox = bb;
+    this._setSwimFrame(bb.min.x, bb.max.x);
+    // pared interna (caras traseras) y cutícula (caras delanteras)
+    group.add(new THREE.Mesh(cuerpo, this._bodyMaterial({ color: "#1d5fe0", rim: "#4fc3ff", strength: 0.4, fill: 0.14,
+      side: THREE.BackSide })));
+    group.add(new THREE.Mesh(cuerpo, this._bodyMaterial({ color: "#2a74ff", rim: "#9eeeff", strength: 0.8, fill: 0.08,
+      annuli: 1 / 0.16, side: THREE.FrontSide })));
+    if (faringe) {
+      group.add(new THREE.Mesh(faringe, this._bodyMaterial({ color: "#7fd6ff", rim: "#d8f6ff", strength: 0.45, fill: 0.22 })));
+      faringe.computeBoundingBox();
+    }
+    // intestino: tubo a lo largo de la línea media, desde el bulbo posterior de la faringe hasta cerca de la cola
+    const linea = this._centerline(cuerpo, 64);
+    if (linea) {
+      const head = bb.min.x, tail = bb.max.x, L = tail - head;
+      const x0 = faringe ? faringe.boundingBox.max.x + 0.02 * L : head + 0.2 * L;
+      const x1 = head + 0.9 * L;
+      const n = 56, centers = [], radii = [];
+      for (let i = 0; i <= n; i++) {
+        const x = x0 + ((x1 - x0) * i) / n;
+        const [cy, cz, r] = linea(x);
+        const u = i / n;
+        const taper = Math.min(1, u / 0.08) * Math.min(1, (1 - u) / 0.12);
+        // el intestino real se tuerce ligeramente (20 células en pares): pequeño zigzag
+        const tw = 0.08 * r * Math.sin(u * Math.PI * 9);
+        centers.push(new THREE.Vector3(x, cy + tw, cz - 0.6 * tw));
+        radii.push(Math.max(0.02, 0.4 * r * (0.25 + 0.75 * taper)));
+      }
+      group.add(new THREE.Mesh(this._tube(centers, radii, 20), this._bodyMaterial({ color: "#3fd1b0", rim: "#9cf5dc",
+        strength: 0.3, fill: 0.2, grain: 0.5 })));
+    }
+  }
+
+  /** Línea media del cuerpo: para cada x, centro (y, z) y radio medio de la sección. */
+  _centerline(geo, bins) {
+    const p = geo.attributes.position;
+    const bb = geo.boundingBox;
+    const x0 = bb.min.x, dx = (bb.max.x - bb.min.x) / bins;
+    const acc = Array.from({ length: bins }, () => [0, 0, 0, []]);
+    for (let i = 0; i < p.count; i++) {
+      const b = Math.min(bins - 1, Math.floor((p.getX(i) - x0) / dx));
+      acc[b][0] += p.getY(i); acc[b][1] += p.getZ(i); acc[b][2]++; acc[b][3].push(i);
+    }
+    const prof = acc.map(([sy, sz, c, idx]) => {
+      if (!c) return null;
+      const cy = sy / c, cz = sz / c;
+      let r = 0;
+      for (const i of idx) r += Math.hypot(p.getY(i) - cy, p.getZ(i) - cz);
+      return [cy, cz, r / c];
+    });
+    // rellenar huecos con el vecino más cercano
+    for (let i = 0; i < bins; i++) if (!prof[i]) prof[i] = prof[i - 1] ?? prof.find(Boolean);
+    if (!prof[0]) return null;
+    return (x) => {
+      const f = Math.max(0, Math.min(bins - 1.001, (x - x0) / dx - 0.5));
+      const i = Math.floor(f), a = f - i, A = prof[i], B = prof[Math.min(bins - 1, i + 1)];
+      return [A[0] + (B[0] - A[0]) * a, A[1] + (B[1] - A[1]) * a, A[2] + (B[2] - A[2]) * a];
+    };
+  }
+
+  /** Tubo de radio variable a lo largo de una línea de centros (paralelo al eje x). */
+  _tube(centers, radii, seg = 24) {
+    const pos = [], idx = [];
+    centers.forEach((c, b) => {
+      for (let k = 0; k <= seg; k++) {
+        const a = (k / seg) * Math.PI * 2;
+        pos.push(c.x, c.y + radii[b] * Math.cos(a), c.z + radii[b] * Math.sin(a));
+      }
+    });
+    for (let b = 0; b < centers.length - 1; b++) {
+      for (let k = 0; k < seg; k++) {
+        const i0 = b * (seg + 1) + k, i1 = i0 + seg + 1;
+        idx.push(i0, i1, i0 + 1, i1, i1 + 1, i0 + 1);
+      }
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+    g.setIndex(idx);
+    g.computeVertexNormals();
+    g.computeBoundingBox();
+    return g;
+  }
+
+  _proceduralBodyGeometry() {
     const xs = this.positions.map((p) => p.x);
     const x0 = Math.min(...xs) - 0.35, x1 = Math.max(...xs) + 0.45;
-    const bins = 48, seg = 40;
+    const bins = 48;
     const centers = [], radii = [];
     for (let b = 0; b <= bins; b++) {
       const x = x0 + ((x1 - x0) * b) / bins;
@@ -261,25 +408,50 @@ export class WormScene {
     });
     const ys = smooth(centers.map((c) => c[1]), 3), zs = smooth(centers.map((c) => c[2]), 3);
     const rs = smooth(radii, 4).map((r, i) => (r * 1.12 + 0.12) * Math.pow(Math.sin((Math.PI * i) / bins), 0.45) + 0.02);
-    const pos = [], idx = [];
-    for (let b = 0; b <= bins; b++) {
-      for (let k = 0; k <= seg; k++) {
-        const a = (k / seg) * Math.PI * 2;
-        pos.push(centers[b][0], ys[b] + rs[b] * Math.cos(a), zs[b] + rs[b] * Math.sin(a));
-      }
-    }
-    for (let b = 0; b < bins; b++) {
-      for (let k = 0; k < seg; k++) {
-        const i0 = b * (seg + 1) + k, i1 = i0 + seg + 1;
-        idx.push(i0, i1, i0 + 1, i1, i1 + 1, i0 + 1);
-      }
-    }
-    const g = new THREE.BufferGeometry();
-    g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
-    g.setIndex(idx);
-    g.computeVertexNormals();
-    this.body = new THREE.Mesh(g, this._bodyMaterial("#2a6dff", "#7fe8ff"));
-    this.scene.add(this.body);
+    return this._tube(centers.map((c, i) => new THREE.Vector3(c[0], ys[i], zs[i])), rs, 40);
+  }
+
+  // ------------------------------------------------------------------ nado
+  /** Onda que viaja de la cabeza a la cola (más amplia hacia la cola), como al nadar. */
+  _setSwimFrame(head, tail) {
+    const L = Math.max(1e-3, tail - head);
+    this.swimU.uSwimX0.value = head;
+    this.swimU.uSwimL.value = L;
+    this.swimU.uSwimK.value = (2 * Math.PI) / (1.05 * L);
+  }
+
+  /** main.js la apaga durante la medición (las neuronas quedan en su lugar real) y la vuelve a encender. */
+  setSwim(on) { this.swim.target = on && this.swim.enabled ? 1 : 0; this.requestRender(); }
+  setSwimEnabled(v) { this.swim.enabled = v && !this.reducedMotion; this.setSwim(v); }
+
+  /** Desplazamiento vertical de la onda en x (la misma fórmula que el shader, para picking y etiquetas). */
+  swimY(x) {
+    const U = this.swimU;
+    const a = U.uSwimAmp.value;
+    if (a === 0) return 0;
+    const s = Math.min(1, Math.max(0, (x - U.uSwimX0.value) / U.uSwimL.value));
+    return a * (0.3 + 0.7 * s) * Math.sin(U.uSwimK.value * (x - U.uSwimX0.value) - U.uSwimW.value * U.uSwimT.value);
+  }
+
+  _animateSwim(dt) {
+    const S = this.swim, U = this.swimU;
+    const goal = S.target;
+    if (S.level === goal && goal === 0) return false;
+    S.level += Math.sign(goal - S.level) * Math.min(Math.abs(goal - S.level), dt / 0.9);
+    const e = S.level * S.level * (3 - 2 * S.level);
+    U.uSwimAmp.value = SWIM_AMP * e;
+    U.uSwimT.value += dt;
+    return true;
+  }
+
+  /** Aplica la onda del nado a un material estándar de three.js (neuronas, sinapsis, anillos, láser…). */
+  _sw(mat) {
+    mat.onBeforeCompile = (sh) => {
+      Object.assign(sh.uniforms, this.swimU);
+      sh.vertexShader = SWIM_GLSL + sh.vertexShader.replace("#include <project_vertex>", PROJECT_SWIM);
+    };
+    mat.customProgramCacheKey = () => "swim";
+    return mat;
   }
 
   // --------------------------------------------------------------- resaltes
@@ -287,8 +459,8 @@ export class WormScene {
     this.highlight = new Set(indices);
     this.ringGroup.clear();
     const geo = new THREE.RingGeometry(0.13, 0.16, 32);
-    const mat = new THREE.MeshBasicMaterial({ color: "#ffd166", transparent: true, opacity: 0.85,
-      side: THREE.DoubleSide, toneMapped: false, depthWrite: false });
+    const mat = this._sw(new THREE.MeshBasicMaterial({ color: "#ffd166", transparent: true, opacity: 0.85,
+      side: THREE.DoubleSide, toneMapped: false, depthWrite: false }));
     for (const i of indices) {
       const m = new THREE.Mesh(geo, mat);
       m.position.copy(this.positions[i]);
@@ -307,8 +479,8 @@ export class WormScene {
     }
     if (indices && indices.length >= 2) {
       const g = new THREE.BufferGeometry().setFromPoints(indices.map((i) => this.positions[i]));
-      this.trail = new THREE.Line(g, new THREE.LineBasicMaterial({ color: new THREE.Color("#ffb347").multiplyScalar(1.4),
-        transparent: true, opacity: 0.95, toneMapped: false, depthWrite: false }));
+      this.trail = new THREE.Line(g, this._sw(new THREE.LineBasicMaterial({ color: new THREE.Color("#ffb347").multiplyScalar(1.4),
+        transparent: true, opacity: 0.95, toneMapped: false, depthWrite: false })));
       this.scene.add(this.trail);
     }
     this.requestRender();
@@ -397,21 +569,21 @@ export class WormScene {
     const len = dir.length();
     const mk = (r, color, op) => {
       const m = new THREE.Mesh(new THREE.CylinderGeometry(r, r * 0.6, len, 12, 1, true),
-        new THREE.MeshBasicMaterial({ color, transparent: true, opacity: op, blending: THREE.AdditiveBlending,
-          depthWrite: false, toneMapped: false }));
+        this._sw(new THREE.MeshBasicMaterial({ color, transparent: true, opacity: op, blending: THREE.AdditiveBlending,
+          depthWrite: false, toneMapped: false })));
       m.position.copy(from).addScaledVector(dir, 0.5);
       m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.clone().normalize());
       return m;
     };
     const glow = mk(0.07, new THREE.Color("#4da3ff").multiplyScalar(1.6), 0.3);
     const core = mk(0.014, new THREE.Color("#e8f4ff").multiplyScalar(2), 0.9);
-    const flash = new THREE.Mesh(new THREE.SphereGeometry(0.3, 16, 12), new THREE.MeshBasicMaterial({
+    const flash = new THREE.Mesh(new THREE.SphereGeometry(0.3, 16, 12), this._sw(new THREE.MeshBasicMaterial({
       color: new THREE.Color("#7cc4ff").multiplyScalar(3), transparent: true, opacity: 0.8,
-      blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false }));
+      blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false })));
     flash.position.copy(target);
-    const ring = new THREE.Mesh(new THREE.RingGeometry(0.2, 0.24, 48), new THREE.MeshBasicMaterial({
+    const ring = new THREE.Mesh(new THREE.RingGeometry(0.2, 0.24, 48), this._sw(new THREE.MeshBasicMaterial({
       color: new THREE.Color("#4da3ff").multiplyScalar(2.5), transparent: true, opacity: 0.9,
-      side: THREE.DoubleSide, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false }));
+      side: THREE.DoubleSide, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false })));
     ring.position.copy(target);
     group.add(glow, core, flash, ring);
     this.scene.add(group);
@@ -455,8 +627,8 @@ export class WormScene {
     const p = probs.map((v) => Math.max(0, v) / tot);
     const pmax = Math.max(...p, 1e-9);
     const group = new THREE.Group();
-    const add = (c, o) => new THREE.MeshBasicMaterial({ color: c, transparent: true, opacity: o,
-      blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false });
+    const add = (c, o) => this._sw(new THREE.MeshBasicMaterial({ color: c, transparent: true, opacity: o,
+      blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false }));
     const haloGeo = new THREE.SphereGeometry(0.22, 18, 12);
     const halos = windowIdx.map((g, i) => {
       const m = new THREE.Mesh(haloGeo, add(new THREE.Color("#38e1ff").multiplyScalar(1.3), 0));
@@ -477,8 +649,8 @@ export class WormScene {
     const pp = new Float32Array(starts.length * 3);
     const pg = new THREE.BufferGeometry();
     pg.setAttribute("position", new THREE.BufferAttribute(pp, 3));
-    const pts = new THREE.Points(pg, new THREE.PointsMaterial({ color: new THREE.Color("#ffd28a").multiplyScalar(1.6), size: 0.11,
-      transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false }));
+    const pts = new THREE.Points(pg, this._sw(new THREE.PointsMaterial({ color: new THREE.Color("#ffd28a").multiplyScalar(1.6), size: 0.11,
+      transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false })));
     group.add(pts);
     // destello final sobre la neurona medida
     const target = spikeIdx != null ? this.positions[spikeIdx] : null;
@@ -632,7 +804,9 @@ export class WormScene {
     const w = this.canvas.clientWidth, h = this.canvas.clientHeight;
     let best = -1, bestD = 14 * 14, bestZ = Infinity;
     for (let i = 0; i < this.positions.length; i++) {
-      const p = this._tmpVec.copy(this.positions[i]).project(this.camera);
+      const p = this._tmpVec.copy(this.positions[i]);
+      p.y += this.swimY(p.x);
+      p.project(this.camera);
       if (p.z > 1) continue;
       const dx = (p.x * 0.5 + 0.5) * w - px, dy = (-p.y * 0.5 + 0.5) * h - py;
       const d = dx * dx + dy * dy;
@@ -684,6 +858,7 @@ export class WormScene {
     if (this.controls.update()) active = true; // amortiguación / rotación automática
     if (this._animateLaser(dt)) active = true;
     if (this._collapse && this._collapse.update(dt)) active = true;
+    if (this._animateSwim(dt)) active = true;
 
     if (this._pointerMoved) {
       this._pointerMoved = false;
@@ -699,7 +874,9 @@ export class WormScene {
     this._dirty = false;
     if (this.ringGroup) this.ringGroup.children.forEach((m) => m.quaternion.copy(this.camera.quaternion));
     if (this.labelIndex >= 0 && this.positions) {
-      const p = this._tmpVec.copy(this.positions[this.labelIndex]).project(this.camera);
+      const p = this._tmpVec.copy(this.positions[this.labelIndex]);
+      p.y += this.swimY(p.x);
+      p.project(this.camera);
       this.labelEl.style.display = p.z < 1 ? "block" : "none";
       this.labelEl.style.left = `${(p.x * 0.5 + 0.5) * this.canvas.clientWidth}px`;
       this.labelEl.style.top = `${(-p.y * 0.5 + 0.5) * this.canvas.clientHeight}px`;
