@@ -25,3 +25,5 @@ export const ejecutar_json = fn("ejecutar_json");
 export const paso_json = fn("paso_json");
 export const comparacion_json = fn("comparacion_json");
 export const figuras_json = fn("figuras_json");
+export const circuito_json = fn("circuito_json");
+export const precargar_figuras = fn("precargar_figuras");

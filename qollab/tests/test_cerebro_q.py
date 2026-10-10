@@ -174,6 +174,32 @@ class TestCascada(unittest.TestCase):
         self.assertGreater(cur["medido"]["origen"][5], cur["coherente"]["origen"][5])
 
 
+class TestCircuitoInstantaneo(unittest.TestCase):
+    """circuito_json: el circuito del paso, sin ejecutarlo, para dibujarlo al instante en JS."""
+
+    def test_vistas_y_ideal(self):
+        p = {"centro": "AVM", "theta": math.pi / 2, "tau": 8, "pasos_trotter": 2}
+        c = json.loads(api.circuito_json(json.dumps(p)))
+        self.assertEqual(len(c["neuronas"]), cascada.TAMANO_VENTANA)
+        self.assertEqual(c["neuronas"], [fisica.acoplamientos()[1][i] for i in cascada.ventana(fisica.indice("AVM"))])
+        self.assertIn("PauliEvolution", c["compacta"]["ops"])
+        self.assertIn("rxx", c["completa"]["ops"])
+        self.assertNotIn("PauliEvolution", c["completa"]["ops"])
+        self.assertEqual(c["completa"]["ops"]["measure"], 10)
+        for i in c["completa"]["instrucciones"]:
+            self.assertTrue(all(0 <= q < 10 for q in i["q"]))
+        # el láser θ = π/2 deja la mitad de los shots sin excitación
+        self.assertAlmostEqual(c["ideal_vacio"], 0.5, places=4)
+        self.assertAlmostEqual(sum(c["ideal_marginales"]) + c["ideal_vacio"], 1.0, places=4)
+
+    def test_mismo_circuito_que_el_paso(self):
+        p = {"centro": "ALML", "tau": 5, "pasos_trotter": 1}
+        c = json.loads(api.circuito_json(json.dumps(p)))
+        r = json.loads(api.paso_json(backend_de_prueba(), json.dumps({**p, "shots": 50, "semilla": 1})))
+        self.assertEqual(c["neuronas"], r["ventana"])
+        self.assertEqual(c["compacta"]["ops"].get("measure"), r["ops_escritas"].get("measure"))
+
+
 @unittest.skipUnless(REAL, "las figuras usan Qiskit real (draw('mpl'), plot_histogram)")
 class TestFiguras(unittest.TestCase):
     SVG = "data:image/svg+xml;base64,"

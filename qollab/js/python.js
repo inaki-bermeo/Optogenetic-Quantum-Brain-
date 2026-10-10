@@ -14,10 +14,19 @@ const texto = (r) => {
 /** Deja que el navegador pinte (p. ej. "Calculando…") antes de un cálculo largo en Python. */
 export const respirar = () => new Promise((ok) => requestAnimationFrame(() => setTimeout(ok, 0)));
 
+// Las llamadas a Python van de a una (Pyodide no corre dos funciones a la vez): así la precarga
+// de matplotlib en segundo plano nunca se mezcla con un job de la cascada.
+let cola = Promise.resolve();
+function enCola(tarea) {
+  const r = cola.then(tarea, tarea);
+  cola = r.catch(() => {});
+  return r;
+}
+
 async function llamar(nombre, ...args) {
   const fn = api[nombre];
   if (!fn) throw new Error(`cerebro_q.api.${nombre} does not exist`);
-  return JSON.parse(texto(await fn.callPromising(...args)));
+  return enCola(async () => JSON.parse(texto(await fn.callPromising(...args))));
 }
 
 export const py = {
@@ -32,9 +41,13 @@ export const py = {
   comparacion: (params) => llamar("comparacion_json", JSON.stringify(params)),
   /** Circuito con draw("mpl") e histograma de Qiskit, como data URI SVG. */
   figuras: (params) => llamar("figuras_json", JSON.stringify(params)),
+  /** El circuito de un paso (instrucciones de Qiskit), sin ejecutarlo ni usar matplotlib. */
+  circuito: (params) => llamar("circuito_json", JSON.stringify(params)),
+  /** Carga matplotlib en segundo plano para que la figura draw("mpl") aparezca antes. */
+  precargarFiguras: () => llamar("precargar_figuras"),
   /** Bytes del cuerpo 3D (data/gusano.glb): Python lo lee y lo entrega en base64. */
   async cuerpo() {
-    const b64 = texto(await api.cuerpo_glb.callPromising());
+    const b64 = await enCola(async () => texto(await api.cuerpo_glb.callPromising()));
     if (!b64) return null;
     const bin = atob(b64);
     const out = new Uint8Array(bin.length);

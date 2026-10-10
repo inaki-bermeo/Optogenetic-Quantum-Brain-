@@ -257,6 +257,102 @@ def paso_json(backend, params_json: str) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Circuito de un paso como lista de instrucciones (para dibujarlo al instante en JS)
+# ---------------------------------------------------------------------------
+def _num(x):
+    try:
+        return float(x)
+    except Exception:
+        return None
+
+
+def _instrucciones(qc) -> list[dict]:
+    """Instrucciones del QuantumCircuit: nombre, qubits, parámetros y etiqueta.
+
+    Con Qiskit real se leen de `qc.data` (CircuitInstruction); la imitación de dev/ guarda tuplas.
+    """
+    out = []
+    for ins in qc.data:
+        if isinstance(ins, tuple):  # imitación de dev/: ("rx", q, θ) o ("rxx", a, b, α)
+            qs = list(ins[1:2]) if ins[0] == "rx" else list(ins[1:3])
+            out.append({"n": ins[0], "q": [int(q) for q in qs], "p": [_num(ins[-1])], "l": None})
+            continue
+        op = ins.operation
+        try:
+            qs = [qc.find_bit(q).index for q in ins.qubits]
+        except Exception:
+            qs = [qc.qubits.index(q) for q in ins.qubits]
+        out.append({"n": op.name, "q": qs, "p": [_num(x) for x in getattr(op, "params", [])],
+                    "l": getattr(op, "label", None)})
+    if getattr(qc, "medido", False) and not any(i["n"] == "measure" for i in out):
+        out += [{"n": "measure", "q": [q], "p": [], "l": None} for q in range(qc.num_qubits)]
+    return out
+
+
+def _resumen(instr: list[dict]) -> dict:
+    ops: dict[str, int] = {}
+    nivel = [0] * 64
+    for i in instr:
+        ops[i["n"]] = ops.get(i["n"], 0) + 1
+        if i["n"] in ("barrier",):
+            continue
+        d = max(nivel[q] for q in i["q"]) + 1
+        for q in i["q"]:
+            nivel[q] = d
+    return {"ops": ops, "profundidad": max(nivel)}
+
+
+def circuito_json(params_json: str) -> str:
+    """El circuito Qiskit de un paso de la cascada, SIN ejecutarlo y sin matplotlib (rápido).
+
+    Devuelve las dos vistas: "compacta" (la PauliEvolutionGate como una caja) y "completa"
+    (su síntesis Suzuki-Trotter en compuertas RXX/RYY), más la distribución ideal del circuito.
+    """
+    p = json.loads(params_json or "{}")
+    centro = fisica.indice(p.get("centro", "AVM"))
+    J, nombres_red, _ = fisica.acoplamientos()
+    w = cascada.ventana(centro)
+    nombres = [nombres_red[i] for i in w]
+    theta, tau = float(p.get("theta", math.pi)), float(p.get("tau", 8.0))
+    gamma, pasos = float(p.get("gamma", 1.0)), max(int(p.get("pasos_trotter", 1)), 1)
+    Js = J[np.ix_(w, w)]
+    n = len(w)
+    qc, metodo = cascada.circuito_paso(Js, theta, tau, gamma, pasos, nombre=f"paso-{nombres[0]}")
+    completa = _instrucciones(qc)
+    if metodo == "pauli_evolution":
+        compacta = completa
+        exp = qc
+        for _ in range(3):  # la síntesis de PauliEvolutionGate → RXX / RYY
+            if not any(getattr(i.operation, "name", "") == "PauliEvolution" for i in exp.data):
+                break
+            exp = exp.decompose(gates_to_decompose=["PauliEvolution"])
+        completa = _instrucciones(exp)
+    else:  # sin PauliEvolutionGate (imitación de dev/): la caja compacta se arma aquí
+        laser = completa[0]
+        compacta = [laser, {"n": "PauliEvolution", "q": list(range(n)), "p": [tau], "l": None}] + \
+            [i for i in completa if i["n"] == "measure"]
+    ideal = circuitos.probabilidades_ideales(cascada.operaciones_paso(Js, theta, tau, gamma, pasos), n)
+    return _json({
+        "centro": nombres[0], "neuronas": nombres, "ventana_indices": w, "metodo": metodo,
+        "theta": theta, "tau": tau, "gamma": gamma, "pasos_trotter": pasos,
+        "compacta": {"instrucciones": compacta, **_resumen(compacta)},
+        "completa": {"instrucciones": completa, **_resumen(completa)},
+        "ideal_marginales": analisis.marginales(ideal, n),
+        "ideal_vacio": float(ideal[0]),
+    })
+
+
+def precargar_figuras() -> str:
+    """Carga matplotlib y la visualización de Qiskit por adelantado (la 1ª figura tarda ~30 s)."""
+    try:
+        visual._matplotlib()
+        from qiskit.visualization import plot_histogram  # noqa: F401
+        return _json({"ok": True})
+    except Exception as e:  # sin matplotlib: la página sigue con el dibujo instantáneo
+        return _json({"ok": False, "error": str(e)})
+
+
+# ---------------------------------------------------------------------------
 # Figuras de Qiskit (matplotlib)
 # ---------------------------------------------------------------------------
 def figuras_json(params_json: str) -> str:

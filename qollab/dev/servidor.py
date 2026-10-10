@@ -43,7 +43,8 @@ except ImportError:
 from cerebro_q import api  # noqa: E402
 
 FUNCIONES = {"conectoma_json", "walk_json", "cuerpo_glb", "microcircuitos_json", "simular_json",
-             "backend_json", "ejecutar_json", "paso_json", "comparacion_json", "figuras_json"}
+             "backend_json", "ejecutar_json", "paso_json", "comparacion_json", "figuras_json",
+             "circuito_json", "precargar_figuras"}
 
 
 def crear_backend(tipo: str):

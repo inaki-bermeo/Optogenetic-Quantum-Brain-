@@ -93,7 +93,7 @@ python dev/prueba_navegador.py            # prueba de humo con Playwright (servi
 5. Presiona **Ejecutar circuito**. Se manda un solo job con 4 tiempos. Los puntos naranjos se comparan con las curvas teóricas y aparecen la TVD y la fracción aceptada.
 6. Para IonQ, elige *IonQ Forte 1* (simulador remoto, gratis). IonQ acepta un job por Run: la cascada corre un paso.
 
-**Cómo replicarlo.** Todo el código y los datos están en este proyecto y en el repositorio público (MIT): https://github.com/JoaquinQu/Cerebro-Cu-ntico-Optogenetico. Las pruebas automáticas comprueban que la dinámica XY en un sector de una excitación coincide con el walk, que Trotter converge, que Givens es exacto y que la post-selección es correcta. La teoría completa está en `docs/TEORIA.md`.
+**Cómo replicarlo.** Todo el código y los datos están en este proyecto y en el repositorio público (MIT): https://github.com/inaki-bermeo/Optogenetic-Quantum-Brain-. Las pruebas automáticas comprueban que la dinámica XY en un sector de una excitación coincide con el walk, que Trotter converge, que Givens es exacto y que la post-selección es correcta. La teoría completa está en `docs/TEORIA.md`.
 
 **Cómo extenderlo.** Hay varias direcciones:
 
