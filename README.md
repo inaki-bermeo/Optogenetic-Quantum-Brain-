@@ -19,7 +19,7 @@ This effort is supported by Qollab & IonQ.
 
 ## Try it in one minute
 
-1. Press **Run** and choose **Built-in simulator** (free and instant).
+1. Press **Run** and choose **Built-in simulator** (free and instant), then press the start button on the intro screen.
 2. In **Laser & measure**, keep the default neuron **AVM** (a touch-sensing neuron) and press **Fire laser**. The spike starts hopping along the worm and leaves a trail.
 3. Open **Lab settings** and compare **τ = 8** (the spike travels) with **τ = 2** (it barely moves: the Zeno effect). Lower **θ** and the laser sometimes fails to fire.
 4. Switch to the **The Qiskit circuit** tab to see the exact circuit of any step, gate by gate, next to the counts the backend returned.
@@ -68,6 +68,21 @@ In optogenetics, neuroscientists make chosen neurons sensitive to light. A pulse
 
 This is an analogy built on the real wiring diagram. We do **not** claim that real neurons are quantum.
 
+## Where the wiring comes from
+
+The neurons and synapses are the real ones, not a toy network. Every neuron name in the app is an identified cell of the worm, every line drawn is a synapse that was seen under the microscope, and every position is where that cell body sits in the animal.
+
+- **The map.** Cook, S. J. et al. (2019). *Whole-animal connectomes of both* Caenorhabditis elegans *sexes.* Nature 571, 63–71. https://doi.org/10.1038/s41586-019-1352-7. The authors reconstructed the whole nervous system from serial-section **electron micrographs**: thousands of ultra-thin slices of the worm, imaged one by one, with every chemical synapse and gap junction traced and counted. The data is published at https://wormwiring.org.
+- **The original map** it builds on: White, J. G. et al. (1986). *The structure of the nervous system of the nematode* C. elegans. Phil. Trans. R. Soc. B 314, 1–340. https://doi.org/10.1098/rstb.1986.0056. This was the first complete wiring diagram of any animal.
+- **The file we load.** The machine-readable edge list from OpenWorm's c302 project (`herm_full_edgelist.csv`): https://github.com/openworm/c302.
+- **The 3D positions.** Cell-body coordinates from OpenWorm's CElegansNeuroML: https://github.com/openworm/CElegansNeuroML.
+
+**How the project uses it.**
+- We keep the 302 neurons of the adult hermaphrodite and normalize their names (e.g. `DA01` → `DA1`).
+- That leaves 3,604 chemical-synapse entries and 2,155 electrical (gap-junction) entries, stored in `data/connectome_cook2019.csv`.
+- Two neurons count as connected if they share at least one synapse of either kind (step 1 below).
+- Only two neurons, CANL and CANR, end up with no connections, because the dataset has none for them.
+
 ---
 
 ## How it works, step by step
@@ -83,7 +98,7 @@ J    = W / λ_max(W)
 
 **In plain words.** We write down who is connected to whom. Every connection counts the same (binary weights), and a connection goes both ways because a Hamiltonian has to be symmetric. Dividing by the largest eigenvalue scales the matrix so its strength is 1. Then time is measured in natural units, 1/γ.
 
-**Where:** *i, j* are neurons (302 in total); *λ_max* is the largest eigenvalue of *W* (about 32.8). Data: chemical and electrical synapses from Cook et al., *Nature* 2019.
+**Where:** *i, j* are neurons (302 in total); *λ_max* is the largest eigenvalue of *W* (about 32.8). Data: the chemical and electrical synapses described in *Where the wiring comes from*.
 
 ### 2. The laser is a rotation
 
