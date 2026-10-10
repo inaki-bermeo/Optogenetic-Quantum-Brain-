@@ -44,6 +44,12 @@
       <label class="toggle" for="casc-shots">shots per circuit</label><button type="button" class="help" data-help="shots" aria-label="What are shots?">?</button>
       <input type="number" id="casc-shots" value="200" min="20" max="2000" step="20" />
     </div>
+    <h3 class="sub">Sound</h3>
+    <div class="field">
+      <div class="field-head"><label for="music-vol">Background music (underwater ambience)</label><b id="music-vol-val">50%</b></div>
+      <input type="range" id="music-vol" min="0" max="100" step="5" value="50" />
+      <small class="hint">It starts with your first click and drops while each circuit is measured.</small>
+    </div>
     <h3 class="sub">Display</h3>
     <div class="row small wrap">
       <label class="toggle"><input type="checkbox" id="show-edges" checked /> synapses</label>

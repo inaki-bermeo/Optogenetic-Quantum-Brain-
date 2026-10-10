@@ -9,7 +9,11 @@
 //                     demás se apagan; la neurona que dispara suena como una campana. Cada neurona
 //                     tiene su propia nota (escala pentatónica), así la cascada es una melodía;
 //   * vacío:          si no disparó ninguna neurona, un golpe grave descendente;
-//   * fondo:          acorde A2 + E3 que "respira" (LFO de 0.2 Hz) mientras corre la cascada.
+//   * fondo:          acorde A2 + E3 que "respira" (LFO de 0.2 Hz) mientras corre la cascada;
+//   * música:         ambiente "submarino" generativo, constante y muy suave: acordes lentos de la misma
+//                     escala (La mayor pentatónica) apagados por un filtro que se mueve como el agua,
+//                     un oleaje de ruido grave, burbujas lejanas de vez en cuando y reverberación.
+//                     Baja de volumen durante la medición para no tapar los sonidos importantes.
 // Los navegadores sólo permiten audio después de un gesto del usuario: el contexto se crea al
 // presionar Fire laser.
 
@@ -26,6 +30,7 @@ export class Sonido {
     this.ctx = null;
     this.on = true;
     this.fondo = null;
+    this.musica = { on: false, vol: 0.5, duck: false, oculto: false, timers: [], voces: [], nodos: null, acorde: 0 };
   }
 
   /** Crea (o reanuda) el contexto de audio. Llamar dentro de un gesto del usuario. */
@@ -52,7 +57,7 @@ export class Sonido {
     const t = this.ctx.currentTime;
     this.master.gain.cancelScheduledValues(t);
     this.master.gain.setTargetAtTime(v ? 0.7 : 0, t, 0.05);
-    if (!v) this.pararFondo();
+    if (!v) { this.pararFondo(); this.musicaOff(); }
   }
 
   get listo() { return !!(this.on && this.ctx && this.ctx.state !== "closed"); }
@@ -187,5 +192,186 @@ export class Sonido {
     F.salida.gain.cancelScheduledValues(t);
     F.salida.gain.setTargetAtTime(0.0001, t, 0.5);
     F.oscs.forEach((o) => o.stop(t + 3));
+  }
+
+  // ---------------------------------------------------------------- música de fondo (submarina)
+  /** Respuesta al impulso para la reverberación: ruido estéreo con caída exponencial (sala grande y húmeda). */
+  _reverb(seg = 4.5) {
+    const ctx = this.ctx, n = Math.floor(ctx.sampleRate * seg);
+    const buf = ctx.createBuffer(2, n, ctx.sampleRate);
+    for (let c = 0; c < 2; c++) {
+      const d = buf.getChannelData(c);
+      for (let i = 0; i < n; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / n, 3.2);
+    }
+    const conv = ctx.createConvolver();
+    conv.buffer = buf;
+    return conv;
+  }
+
+  /** Ruido marrón (grave, como agua en movimiento), en un buffer que se repite. */
+  _ruidoMarron(seg = 6) {
+    const ctx = this.ctx, n = Math.floor(ctx.sampleRate * seg);
+    const buf = ctx.createBuffer(1, n, ctx.sampleRate);
+    const d = buf.getChannelData(0);
+    let last = 0;
+    for (let i = 0; i < n; i++) { last = (last + 0.02 * (Math.random() * 2 - 1)) / 1.02; d[i] = last * 3.5; }
+    const src = ctx.createBufferSource();
+    src.buffer = buf;
+    src.loop = true;
+    return src;
+  }
+
+  /** Enciende el ambiente submarino (después de un gesto del usuario). */
+  musicaOn() {
+    const M = this.musica;
+    if (!this.listo || M.on) return;
+    M.on = true;
+    const ctx = this.ctx, t0 = ctx.currentTime + 0.05;
+    // cadena: voces → filtro "bajo el agua" (con vaivén) → seco + reverb → volumen → master
+    const salida = ctx.createGain();
+    salida.gain.setValueAtTime(0.0001, t0);
+    salida.gain.exponentialRampToValueAtTime(this._musicaNivel(), t0 + 6); // entra muy de a poco
+    // sin graves inaudibles en parlantes de notebook (sólo gastan volumen)
+    const corte = ctx.createBiquadFilter();
+    corte.type = "highpass";
+    corte.frequency.value = 55;
+    salida.connect(corte).connect(this.master);
+    const filtro = ctx.createBiquadFilter();
+    filtro.type = "lowpass";
+    filtro.frequency.value = 640;
+    filtro.Q.value = 0.7;
+    const vaiven = this._osc("sine", 0.045, t0); // el filtro se abre y cierra cada ~22 s, como una corriente
+    const vg = ctx.createGain();
+    vg.gain.value = 220;
+    vaiven.connect(vg).connect(filtro.frequency);
+    vaiven.start(t0);
+    const rev = this._reverb();
+    const seco = ctx.createGain(); seco.gain.value = 0.55;
+    const humedo = ctx.createGain(); humedo.gain.value = 0.9;
+    filtro.connect(seco).connect(salida);
+    filtro.connect(rev).connect(humedo).connect(salida);
+    // oleaje: ruido grave que sube y baja lentamente
+    const ola = this._ruidoMarron();
+    const olaF = ctx.createBiquadFilter();
+    olaF.type = "bandpass"; olaF.frequency.value = 220; olaF.Q.value = 0.6;
+    const olaG = ctx.createGain(); olaG.gain.value = 0.045;
+    const olaLfo = this._osc("sine", 0.075, t0);
+    const olaLg = ctx.createGain(); olaLg.gain.value = 0.035;
+    olaLfo.connect(olaLg).connect(olaG.gain);
+    ola.connect(olaF).connect(olaG).connect(rev);
+    olaG.connect(salida);
+    ola.start(t0); olaLfo.start(t0);
+    M.nodos = { salida, filtro, rev, fuentes: [vaiven, ola, olaLfo] };
+    this._siguienteAcorde();
+    this._burbujas();
+  }
+
+  musicaOff() {
+    const M = this.musica;
+    if (!M.on) return;
+    M.on = false;
+    M.timers.forEach(clearTimeout);
+    M.timers = [];
+    const N = M.nodos, t = this.ctx.currentTime;
+    if (N) {
+      N.salida.gain.cancelScheduledValues(t);
+      N.salida.gain.setTargetAtTime(0.0001, t, 0.6);
+      N.fuentes.forEach((o) => o.stop(t + 3));
+    }
+    M.voces.forEach((v) => v.forEach((o) => o.stop(t + 3)));
+    M.voces = [];
+    M.nodos = null;
+  }
+
+  /** Volumen de la música (0..1, el control de Lab settings). */
+  setMusicaVol(v) {
+    this.musica.vol = v;
+    this._aplicarNivel();
+  }
+
+  /** Durante la medición la música baja (≈ 30 %) para que se oigan el láser, el colapso y los disparos. */
+  musicaDuck(on) {
+    this.musica.duck = on;
+    this._aplicarNivel();
+  }
+
+  /** Con la pestaña oculta la música se apaga suavemente y vuelve al regresar. */
+  musicaOculta(v) {
+    this.musica.oculto = v;
+    this._aplicarNivel();
+  }
+
+  _musicaNivel() {
+    const M = this.musica;
+    return Math.max(0.0001, 1.8 * Math.pow(M.vol, 1.6) * (M.duck ? 0.25 : 1) * (M.oculto ? 0 : 1));
+  }
+
+  _aplicarNivel() {
+    const N = this.musica.nodos;
+    if (!N || !this.ctx) return;
+    const t = this.ctx.currentTime;
+    N.salida.gain.cancelScheduledValues(t);
+    N.salida.gain.setTargetAtTime(this._musicaNivel(), t, this.musica.duck ? 0.4 : 1.5);
+  }
+
+  /** Acordes lentos (A – F#m – D – E), apagados y con voces levemente desafinadas; cambian cada ~14 s. */
+  _siguienteAcorde() {
+    const M = this.musica;
+    if (!M.on) return;
+    const ACORDES = [
+      [110.0, 164.81, 220.0, 277.18], // La
+      [92.5, 138.59, 185.0, 220.0], // Fa# menor
+      [73.42, 110.0, 146.83, 185.0], // Re
+      [82.41, 123.47, 164.81, 207.65], // Mi
+    ];
+    const ctx = this.ctx, t0 = ctx.currentTime + 0.05, dur = 14, fade = 6;
+    const notas = ACORDES[M.acorde % ACORDES.length];
+    M.acorde++;
+    const voz = [];
+    notas.forEach((f, i) => {
+      for (const det of [-6, 5]) {
+        const o = this._osc(i === 0 ? "triangle" : "sawtooth", f, t0);
+        o.detune.value = det + (Math.random() * 4 - 2);
+        const g = ctx.createGain();
+        const nivel = (i === 0 ? 0.09 : 0.045) / (1 + i * 0.15);
+        g.gain.setValueAtTime(0.0001, t0);
+        g.gain.linearRampToValueAtTime(nivel, t0 + fade);
+        g.gain.setValueAtTime(nivel, t0 + dur);
+        g.gain.linearRampToValueAtTime(0.0001, t0 + dur + fade);
+        o.connect(g).connect(M.nodos.filtro);
+        o.start(t0);
+        o.stop(t0 + dur + fade + 0.1);
+        voz.push(o);
+      }
+    });
+    M.voces.push(voz);
+    if (M.voces.length > 3) M.voces.shift();
+    M.timers.push(setTimeout(() => this._siguienteAcorde(), dur * 1000));
+  }
+
+  /** Burbujas lejanas: de vez en cuando, un "blup" agudo y muy suave que sube de tono. */
+  _burbujas() {
+    const M = this.musica;
+    if (!M.on) return;
+    const ctx = this.ctx, t0 = ctx.currentTime + 0.05;
+    const n = 1 + Math.floor(Math.random() * 3);
+    for (let k = 0; k < n; k++) {
+      const t = t0 + k * (0.08 + Math.random() * 0.15);
+      const f = 500 + Math.random() * 700;
+      const o = this._osc("sine", f, t);
+      o.frequency.exponentialRampToValueAtTime(f * 2.2, t + 0.07);
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.exponentialRampToValueAtTime(0.022, t + 0.008);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + 0.09);
+      g.connect(M.nodos.rev); // lejanas: casi sólo reverberación
+      o.connect(g);
+      const seco = ctx.createGain();
+      seco.gain.value = 0.25;
+      g.connect(seco).connect(M.nodos.salida);
+      o.start(t);
+      o.stop(t + 0.12);
+    }
+    M.timers.push(setTimeout(() => this._burbujas(), 5000 + Math.random() * 9000));
   }
 }

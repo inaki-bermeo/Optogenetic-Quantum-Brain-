@@ -200,6 +200,8 @@ async function fire() {
   }
   cascade.armed = false;
   sound.activar(); // dentro del clic: los navegadores sólo permiten audio tras un gesto
+  sound.musicaOn();
+  sound.musicaDuck(true); // la música baja durante la medición
   const total = ionq ? 1 : clamp(parseInt($("casc-pasos").value, 10) || 12, 1, 60);
   const shots = clamp(parseInt($("casc-shots").value, 10) || 200, 20, 2000);
   const { theta, tau, gamma } = physics();
@@ -258,7 +260,7 @@ async function fire() {
   } finally {
     cascade.running = false;
     sound.pararFondo();
-    setTimeout(() => { if (!cascade.running) scene.setSwim(true); }, 2500);
+    setTimeout(() => { if (!cascade.running) { scene.setSwim(true); sound.musicaDuck(false); } }, 2500);
     $("casc-stop").disabled = true;
     const bloqueado = state.backend.ionq && state.jobsSent >= 1;
     $("fire-btn").disabled = bloqueado;
@@ -675,11 +677,27 @@ function bindUI() {
   $("sound-btn").addEventListener("click", () => {
     const on = !sound.on;
     sound.setOn(on);
-    if (on) sound.activar();
+    if (on && sound.activar()) sound.musicaOn();
     $("sound-btn").setAttribute("aria-pressed", String(on));
     $("sound-label").textContent = on ? "Sound on" : "Sound off";
     $("sound-icon").innerHTML = on ? SOUND_ON : SOUND_OFF;
     announce(on ? "Sound on" : "Sound off");
+  });
+
+  // música de fondo: empieza con el primer gesto en la página (regla de los navegadores)
+  const empezarMusica = () => {
+    if (sound.on && sound.activar()) sound.musicaOn();
+    document.removeEventListener("pointerdown", empezarMusica);
+    document.removeEventListener("keydown", empezarMusica);
+  };
+  document.addEventListener("pointerdown", empezarMusica);
+  document.addEventListener("keydown", empezarMusica);
+  document.addEventListener("visibilitychange", () => sound.musicaOculta(document.hidden));
+  $("music-vol").addEventListener("input", () => {
+    const v = parseInt($("music-vol").value, 10);
+    sound.setMusicaVol(v / 100);
+    $("music-vol-val").textContent = v ? `${v}%` : "off";
+    $("music-vol").setAttribute("aria-valuetext", v ? `${v} percent` : "off");
   });
 
   // panel 2
