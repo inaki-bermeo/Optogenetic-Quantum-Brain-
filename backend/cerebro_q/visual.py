@@ -88,6 +88,3 @@ def distribucion_ideal(qc, nombres: list[str], titulo: str) -> str:
                                 title=titulo, figsize=(9, 4), color="#38e1ff", bar_labels=True)
     return _svg(fig)
 
-
-def resumen_ops(qc) -> dict:
-    return {str(k): int(v) for k, v in qc.count_ops().items()}

@@ -16,14 +16,9 @@ async function call(nombre, args) {
 const fn = (nombre) => ({ callPromising: (...args) => call(nombre, args) });
 
 export const conectoma_json = fn("conectoma_json");
-export const walk_json = fn("walk_json");
 export const cuerpo_glb = fn("cuerpo_glb");
-export const microcircuitos_json = fn("microcircuitos_json");
-export const simular_json = fn("simular_json");
 export const backend_json = fn("backend_json");
-export const ejecutar_json = fn("ejecutar_json");
 export const paso_json = fn("paso_json");
-export const comparacion_json = fn("comparacion_json");
-export const figuras_json = fn("figuras_json");
 export const circuito_json = fn("circuito_json");
+export const figuras_json = fn("figuras_json");
 export const precargar_figuras = fn("precargar_figuras");

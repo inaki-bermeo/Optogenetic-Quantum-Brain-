@@ -28,6 +28,9 @@ import numpy as np
 
 from cerebro_q import analisis, api, cascada, circuitos, fisica
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import referencia  # noqa: E402
+
 
 def backend_de_prueba():
     if REAL:
@@ -37,77 +40,58 @@ def backend_de_prueba():
     return BackendSimulado()
 
 
+TOQUE = ["AVM", "ALML", "AVDL", "AVAL", "PVCL", "PLML"]  # 6 neuronas del reflejo de toque
+
+
 class TestFisica(unittest.TestCase):
     def test_normalizacion(self):
         J, nombres, _ = fisica.acoplamientos()
         self.assertEqual(len(nombres), 302)
+        self.assertTrue(np.allclose(J, J.T))
         self.assertAlmostEqual(np.max(np.abs(np.linalg.eigvalsh(J))), 1.0, places=9)
 
     def test_walk_conserva_norma(self):
-        w = json.loads(api.walk_json("AVM", 1.2, 1.0, 40.0, 9))
-        P = np.array(w["prob"])
-        self.assertTrue(np.allclose(P.sum(axis=1), math.sin(0.6) ** 2, atol=1e-3))
+        J, _, _ = fisica.acoplamientos()
+        P = fisica.probabilidades_walk(np.linalg.eigh(J), fisica.indice("AVM"), np.linspace(0, 40, 9), 1.2, 1.0)
+        self.assertTrue(np.allclose(P.sum(axis=1), math.sin(0.6) ** 2, atol=1e-9))
 
     def test_xy_igual_a_walk(self):
-        J = fisica.sub_acoplamientos(["AVM", "ALML", "AVDL", "AVAL", "PVCL", "PLML"])
-        exacta = fisica.distribucion_exacta(J, [0], 2.0, 17.0, 1.0)
+        """Sector de una excitación del modelo XY (espacio completo 2^6) = quantum walk γJ."""
+        J = referencia.sub_J(TOQUE)
+        exacta = referencia.distribucion_exacta(J, 0, 2.0, 17.0, 1.0)
         walk = fisica.probabilidades_walk(np.linalg.eigh(J), 0, np.array([17.0]), 2.0, 1.0)[0]
-        self.assertTrue(np.allclose(fisica.marginales(exacta, 6), walk, atol=1e-9))
+        self.assertTrue(np.allclose(analisis.marginales(exacta, 6), walk, atol=1e-9))
+        self.assertAlmostEqual(exacta[0], math.cos(1.0) ** 2, places=9)  # P(vacío) = cos²(θ/2)
 
 
 class TestCircuitos(unittest.TestCase):
     def test_trotter_converge(self):
-        J = fisica.sub_acoplamientos(["AVM", "ALML", "AVDL", "AVAL", "PVCL", "PLML"])
-        exacta = fisica.distribucion_exacta(J, [0], math.pi, 20.0, 1.0)
-        errs = [analisis.tvd(exacta, circuitos.probabilidades_ideales(
+        J = referencia.sub_J(TOQUE)
+        exacta = referencia.distribucion_exacta(J, 0, math.pi, 20.0, 1.0)
+        errs = [referencia.tvd(exacta, circuitos.probabilidades_ideales(
             circuitos.operaciones(6, [0], math.pi, circuitos.saltos_trotter(J, 20.0, r)), 6)) for r in (2, 8)]
         self.assertLess(errs[1], errs[0])
         self.assertLess(errs[1], 0.02)
 
-    def test_givens_exacto(self):
-        J = fisica.sub_acoplamientos(["AVM", "ALML", "AVDL", "AVAL", "PVCL", "PLML"])
-        lam, V = np.linalg.eigh(J)
-        amp = V @ (np.exp(-1j * lam * 25.0) * V[0])
-        ops = circuitos.operaciones(6, [0], math.pi, circuitos.saltos_givens(amp, 0))
-        self.assertLess(analisis.tvd(fisica.distribucion_exacta(J, [0], math.pi, 25.0, 1.0),
-                                     circuitos.probabilidades_ideales(ops, 6)), 1e-9)
-
-    def test_postseleccion(self):
-        p = np.full(16, 1 / 16)
-        ps, ac = analisis.postseleccionar(p, 4, 1)
-        self.assertAlmostEqual(ac, 5 / 16)
-        self.assertAlmostEqual(ps.sum(), 1.0)
-
     def test_orden_de_bits_qiskit(self):
-        # '010' en Qiskit = qubit 1 en 1  →  índice 2
-        p = analisis.conteos_a_probs({"010": 10}, 3)
-        self.assertEqual(int(np.argmax(p)), 2)
+        # '010' en Qiskit = qubit 1 en 1; '011' tiene dos excitaciones (se descarta); '000' = vacío
+        validos, vacios, total = analisis.contar_spikes({"010": 7, "0 1 1": 2, "000": 1})
+        self.assertEqual((validos, vacios, total), ({1: 7}, 1, 10))
+        p = np.zeros(8)
+        p[2] = 1.0
         self.assertEqual(analisis.marginales(p, 3), [0.0, 1.0, 0.0])
 
 
 class TestApiQollab(unittest.TestCase):
-    def test_simular(self):
-        s = json.loads(api.simular_json(json.dumps({"preset": "toque-6", "t": 30})))
-        self.assertEqual(s["n_qubits"], 6)
-        self.assertLess(s["tvd_circuito"], 0.15)
-        self.assertIn("ruido", s)
-
-    def test_theta_escala_y_eje_fijo(self):
-        """Con un láser θ sólo escala P_k por sin²(θ/2): el eje fijo (escala de θ = π) debe mostrarlo."""
-        lleno = json.loads(api.simular_json(json.dumps({"preset": "toque-6", "t": 30, "theta": math.pi})))
-        medio = json.loads(api.simular_json(json.dumps({"preset": "toque-6", "t": 30, "theta": math.pi / 2})))
-        self.assertAlmostEqual(lleno["escala_y"], medio["escala_y"], places=5)
-        self.assertEqual(lleno["pasos"], medio["pasos"])  # el autoajuste de Trotter no depende de θ
-        for serie in ("exacta", "ideal"):
-            np.testing.assert_allclose(np.array(medio[serie]), 0.5 * np.array(lleno[serie]), atol=1e-5)
-
-    def test_ejecutar_un_solo_job_varios_tiempos(self):
-        r = json.loads(api.ejecutar_json(backend_de_prueba(), json.dumps(
-            {"preset": "toque-6", "modo": "givens", "tiempos": [10, 20, 30], "shots": 4000})))
-        self.assertEqual(len(r["resultados"]), 3)
-        for fila in r["resultados"]:
-            self.assertLess(fila["tvd_bruto"], 0.06)  # backend ideal: sólo ruido estadístico
-            self.assertAlmostEqual(fila["fraccion_aceptada"], 1.0, places=6)
+    def test_conectoma(self):
+        c = json.loads(api.conectoma_json(1200))
+        self.assertEqual(len(c["neurons"]), 302)
+        self.assertEqual(len(c["edges"]), 1200)
+        # se dibujan las conexiones con más sinapsis reales
+        from cerebro_q import datos
+        cnt = datos.conteo_sinapsis()
+        dibujadas = [cnt[a, b] for a, b, _ in c["edges"]]
+        self.assertGreaterEqual(min(dibujadas), np.sort(cnt[np.triu_indices(302, 1)])[::-1][1199])
 
     def test_cuerpo_glb(self):
         import base64
@@ -124,7 +108,7 @@ class TestApiQollab(unittest.TestCase):
 
 
 class TestCascada(unittest.TestCase):
-    """Quantum walk por ventanas (docs/PLAN_WALK_VENTANAS.md)."""
+    """Quantum walk por ventanas (docs/cascade.md)."""
 
     def test_ventana(self):
         J, nombres, _ = fisica.acoplamientos()
@@ -139,19 +123,23 @@ class TestCascada(unittest.TestCase):
             for j in w[1:]:  # vecina directa, o a distancia 2 si faltan
                 self.assertTrue(j in vecinas or any(J[v, j] > 0 for v in w[1:] if v in vecinas))
 
+    def test_ventana_avm(self):
+        """La ventana de AVM documentada en docs/cascade.md (orden por número de sinapsis)."""
+        nombres = fisica.acoplamientos()[1]
+        self.assertEqual([nombres[i] for i in cascada.ventana(fisica.indice("AVM"))],
+                         ["AVM", "ALMR", "AVDL", "PVCR", "ALML", "PVR", "AVBL", "PVCL", "AVBR", "BDUR"])
+
     def test_circuito_paso_igual_a_teoria(self):
-        J, _, _ = fisica.acoplamientos()
-        w = cascada.ventana(fisica.indice("AVM"))
-        Js = J[np.ix_(w, w)]
-        exacta = fisica.distribucion_exacta(Js, [0], math.pi, 5.0, 1.0)
+        _, _, Js = cascada.preparar_paso(fisica.indice("AVM"))
+        exacta = referencia.distribucion_exacta(Js, 0, math.pi, 5.0, 1.0)
         ops = cascada.operaciones_paso(Js, math.pi, 5.0, 1.0, 2)
-        self.assertLess(analisis.tvd(exacta, circuitos.probabilidades_ideales(ops, 10)), 0.01)
+        self.assertLess(referencia.tvd(exacta, circuitos.probabilidades_ideales(ops, 10)), 0.01)
         qc, metodo = cascada.circuito_paso(Js, math.pi, 5.0, 1.0, 2)
         if REAL:  # Qiskit real: PauliEvolutionGate + SuzukiTrotter debe dar lo mismo
             from qiskit.quantum_info import Statevector
             self.assertEqual(metodo, "pauli_evolution")
             sv = Statevector.from_instruction(qc.remove_final_measurements(inplace=False))
-            self.assertLess(analisis.tvd(exacta, sv.probabilities()), 0.01)
+            self.assertLess(referencia.tvd(exacta, sv.probabilities()), 0.01)
 
     def test_paso_en_backend(self):
         r = json.loads(api.paso_json(backend_de_prueba(), json.dumps(
@@ -161,7 +149,7 @@ class TestCascada(unittest.TestCase):
         self.assertIn(r["spike"], r["ventana"])
         self.assertAlmostEqual(sum(r["medida"]), 1.0, places=6)
         self.assertAlmostEqual(r["fraccion_valida"], 1.0, places=6)  # backend ideal
-        self.assertLess(0.5 * sum(abs(a - b) for a, b in zip(r["medida"], r["teoria_circuito"])), 0.15)
+        self.assertLess(referencia.tvd(r["medida"], r["teoria_ventana"]), 0.15)
 
     def test_paso_sin_disparo(self):
         r = json.loads(api.paso_json(backend_de_prueba(), json.dumps(
@@ -169,14 +157,24 @@ class TestCascada(unittest.TestCase):
         self.assertIsNone(r["spike"])
         self.assertEqual(r["motivo_fin"], "vacio")
 
+
+class TestZeno(unittest.TestCase):
+    """tools/zeno_analysis.py: los números de la tabla τ del Project Card."""
+
     def test_comparacion(self):
-        c = json.loads(api.comparacion_json(json.dumps({"centro": "AVM", "tau": 2, "pasos": 10, "trayectorias": 50})))
-        cur = c["curvas"]
+        import zeno_analysis
+        cur = zeno_analysis.comparacion(fisica.indice("AVM"), tau=2, pasos=10, trayectorias=50)["curvas"]
         for k in ("coherente", "medido", "ventanas", "clasico"):
             self.assertEqual(len(cur[k]["origen"]), 11)
             self.assertAlmostEqual(cur[k]["origen"][0], 1.0, places=6)
         # Efecto Zeno: medido cada τ = 2 se queda más en el origen que el walk coherente
         self.assertGreater(cur["medido"]["origen"][5], cur["coherente"]["origen"][5])
+
+    def test_tabla_tau(self):
+        import zeno_analysis
+        c = fisica.indice("AVM")
+        quieto = [zeno_analysis.estadisticas_cascada(c, tau)["se_queda"] for tau in (3, 5, 8)]
+        self.assertEqual([round(100 * q) for q in quieto], [93, 81, 60])
 
 
 class TestCircuitoInstantaneo(unittest.TestCase):
@@ -209,19 +207,18 @@ class TestCircuitoInstantaneo(unittest.TestCase):
 class TestFiguras(unittest.TestCase):
     SVG = "data:image/svg+xml;base64,"
 
-    def test_microcircuito(self):
-        f = json.loads(api.figuras_json(json.dumps({"tipo": "micro", "preset": "toque-6", "t": 30, "pasos": 2})))
+    def test_paso_ideal(self):
+        f = json.loads(api.figuras_json(json.dumps({"centro": "AVM", "tau": 5, "pasos_trotter": 1})))
         self.assertTrue(f["circuito_svg"].startswith(self.SVG))
         self.assertTrue(f["histograma_svg"].startswith(self.SVG))
         self.assertEqual(f["histograma_tipo"], "ideal")
-        self.assertEqual(f["ops"]["rx"], 1)
 
     def test_paso_con_conteos(self):
         p = {"centro": "AVM", "tau": 5, "shots": 100, "pasos_trotter": 1, "semilla": 2}
         r = json.loads(api.paso_json(backend_de_prueba(), json.dumps(p)))
         self.assertEqual(sum(r["conteos"].values()), 100)
         for vista, nombre in (("compacta", "PauliEvolution"), ("expandida", "rxx")):
-            f = json.loads(api.figuras_json(json.dumps({"tipo": "paso", **p, "vista": vista, "conteos": r["conteos"]})))
+            f = json.loads(api.figuras_json(json.dumps({**p, "vista": vista, "conteos": r["conteos"]})))
             self.assertIn(nombre, f["ops"])
             self.assertEqual(f["histograma_tipo"], "medido")
             self.assertEqual(f["neuronas"], r["ventana"])

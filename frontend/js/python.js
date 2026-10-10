@@ -31,14 +31,9 @@ async function llamar(nombre, ...args) {
 
 export const py = {
   conectoma: (maxAristas = 1200) => llamar("conectoma_json", maxAristas),
-  walk: ({ fuente, theta, gamma, t_max, cuadros = 160 }) => llamar("walk_json", fuente, theta, gamma, t_max, cuadros),
-  microcircuitos: () => llamar("microcircuitos_json"),
-  simular: (params) => llamar("simular_json", JSON.stringify(params)),
   backendInfo: (backend) => llamar("backend_json", backend),
-  ejecutar: (backend, params) => llamar("ejecutar_json", backend, JSON.stringify(params)),
   /** Un paso de la cascada: un circuito de 10 qubits en UN job del backend. */
   paso: (backend, params) => llamar("paso_json", backend, JSON.stringify(params)),
-  comparacion: (params) => llamar("comparacion_json", JSON.stringify(params)),
   /** Circuito con draw("mpl") e histograma de Qiskit, como data URI SVG. */
   figuras: (params) => llamar("figuras_json", JSON.stringify(params)),
   /** El circuito de un paso (instrucciones de Qiskit), sin ejecutarlo ni usar matplotlib. */
@@ -49,9 +44,8 @@ export const py = {
   async cuerpo() {
     const b64 = await enCola(async () => texto(await api.cuerpo_glb.callPromising()));
     if (!b64) return null;
-    const bin = atob(b64);
-    const out = new Uint8Array(bin.length);
-    for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
-    return out.buffer;
+    // Decodificación nativa si el navegador la tiene (Uint8Array.fromBase64); si no, atob.
+    if (typeof Uint8Array.fromBase64 === "function") return Uint8Array.fromBase64(b64).buffer;
+    return Uint8Array.from(atob(b64), (c) => c.charCodeAt(0)).buffer;
   },
 };

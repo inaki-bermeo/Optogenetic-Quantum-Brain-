@@ -1,4 +1,4 @@
-"""Datos del conectoma de C. elegans.
+"""Datos del conectoma de C. elegans (fuentes en docs/architecture.md, "Data provenance").
 
 Las rutas están escritas como texto literal porque el runtime de Qollab sólo carga
 los archivos del proyecto cuyas rutas aparecen así en el código.
@@ -31,11 +31,22 @@ def neuronas() -> list[dict]:
 
 @lru_cache(maxsize=1)
 def sinapsis() -> list[tuple[str, str, int, str]]:
-    filas = []
     with open(RUTA_SINAPSIS, newline="", encoding="utf-8") as fh:
-        for r in csv.DictReader(fh):
-            filas.append((r["source"], r["target"], int(r["weight"]), r["type"]))
-    return filas
+        return [(r["source"], r["target"], int(r["weight"]), r["type"]) for r in csv.DictReader(fh)]
+
+
+@lru_cache(maxsize=1)
+def conteo_sinapsis() -> np.ndarray:
+    """Número de sinapsis entre cada par de neuronas (químicas y gap, en ambos sentidos). Simétrica.
+
+    Ordena las vecinas de cada ventana de la cascada; J sólo usa si es > 0.
+    """
+    idx = {d["name"]: i for i, d in enumerate(neuronas())}
+    c = np.zeros((len(idx), len(idx)))
+    for a, b, w, _tipo in sinapsis():
+        if a in idx and b in idx and a != b:
+            c[idx[a], idx[b]] += w
+    return c + c.T
 
 
 @lru_cache(maxsize=1)
@@ -47,7 +58,3 @@ def cuerpo_glb_base64() -> str:
 
 def normalizar_nombre(nombre: str) -> str:
     return re.sub(r"^([A-Z]+)0(\d)$", r"\1\2", nombre.strip().upper())
-
-
-def posiciones() -> np.ndarray:
-    return np.array([[d["x"], d["y"], d["z"]] for d in neuronas()], dtype=float)
