@@ -380,3 +380,5 @@
 .mpl-card .fig-scroll { max-height: 46vh; }
 .circuit-view > .btn.next { margin-top: 12px; }
 @media (max-width: 960px) { .circ-grid { grid-template-columns: 1fr; } }
+#sound-btn[aria-pressed="false"] { color: var(--faint); }
+#sound-btn svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; }

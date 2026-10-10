@@ -22,7 +22,7 @@ In optogenetics, a pulse of light makes a chosen neuron fire, and researchers wa
 
 The page has two panels, a live "What you're seeing" narration over the 3D worm, "?" help next to every technical term, and the advanced settings in a **Lab settings** drawer:
 
-1. **Laser & measure.** Pick any of the 302 neurons, set the light dose θ and press **Fire laser**. Every step of what follows is a real Qiskit circuit run on the selected backend (**one job per step**): 10 qubits for the neuron that fired and its 9 neighbours with the most synapses, the laser as RX(θ), the XY quantum walk e^(−iτH) built with `PauliEvolutionGate` + `SuzukiTrotter`, and a measurement of all 10 qubits. The neuron that comes out as 1 in a random shot fires the next step, so the spike jumps across the worm and leaves a trail. Each measurement is animated in 3D: the window neurons pulse together in superposition, then collapse onto the measured neuron.
+1. **Laser & measure.** Pick any of the 302 neurons, set the light dose θ and press **Fire laser**. Every step of what follows is a real Qiskit circuit run on the selected backend (**one job per step**): 10 qubits for the neuron that fired and its 9 neighbours with the most synapses, the laser as RX(θ), the XY quantum walk e^(−iτH) built with `PauliEvolutionGate` + `SuzukiTrotter`, and a measurement of all 10 qubits. The neuron that comes out as 1 in a random shot fires the next step, so the spike jumps across the worm and leaves a trail. Each measurement is animated in 3D: the window neurons pulse together in superposition, then collapse onto the measured neuron. It is also heard: the laser is a falling chirp, the superposition is ten detuned tones (one per neuron, louder when more likely) that glide into the note of the measured neuron, and every neuron has its own pentatonic note, so each cascade plays its own melody (sound on/off in the top bar).
 2. **The Qiskit circuit.** The exact `QuantumCircuit` of any step (or of the next laser shot, before it runs) appears instantly, gate by gate: the laser, every RXX·RYY hop of the Trotter decomposition, and the measurements, with the bit string that the cascade picked. Next to it are the counts returned by the backend and Qiskit's own `draw("mpl")` figure with `plot_histogram`, which loads in the background.
 
 
@@ -73,6 +73,7 @@ Ideas to extend it: several simultaneous lasers, directed synapses (chiral or st
 [To complete with the team: what existed before the hackathon build window and what was added during it. The rules require this on the project page.]
 
 - **Data:** connectome from Cook et al., *Nature* 571, 63 (2019), via OpenWorm c302. Neuron positions: OpenWorm CElegansNeuroML. Touch reflex: Chalfie et al. (1985). Optogenetics in *C. elegans*: Nagel et al. (2005).
+- **Sound:** synthesised live with the Web Audio API, adapted from the team's DSP engine (`backend/audio_dsp.py`).
 - **Libraries:** Qiskit, NumPy, SciPy, matplotlib and three.js.
 
 **Themes:** Quantum Unlocked · Quantum Playground. **License:** MIT.

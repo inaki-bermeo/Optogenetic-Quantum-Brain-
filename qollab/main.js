@@ -10,6 +10,7 @@
 import { QUALITY, WormScene } from "./js/escena.js";
 import { dataTable, groupedBars, SERIES_COLORS } from "./js/graficos.js";
 import { py, respirar } from "./js/python.js";
+import { notaNeurona, Sonido } from "./js/sonido.js";
 
 const $ = (id) => document.getElementById(id);
 const TYPE_ES = { sensory: "sensory", interneuron: "interneuron", motor: "motor", unknown: "—" };
@@ -22,6 +23,8 @@ const cascade = { running: false, stop: false, armed: false, centers: [], steps:
 const ui = { chapter: 1, narr: null };
 const circ = { cache: new Map(), follow: true, turno: 0, fig: new Map(), figTurno: 0, mplListo: false, mpl: null };
 const DOS_QUBITS = new Set(["rxx", "ryy", "rzz", "rzx", "cx", "cz", "ecr", "ms", "zz", "swap", "iswap", "xx_plus_yy"]);
+const SOUND_ON = '<path d="M4 9v6h4l5 4V5L8 9H4z"/><path d="M16 8.5a5 5 0 0 1 0 7M18.5 6a8.5 8.5 0 0 1 0 12"/>';
+const SOUND_OFF = '<path d="M4 9v6h4l5 4V5L8 9H4z"/><path d="M17 9l5 6M22 9l-5 6"/>';
 const sleep = (ms) => new Promise((ok) => setTimeout(ok, ms));
 
 const HELP = {
@@ -36,6 +39,7 @@ const HELP = {
 };
 
 const scene = new WormScene($("scene"), { quality: "auto" });
+const sound = new Sonido();
 
 // ------------------------------------------------------------------ utilidades
 function toast(msg, isErr = false) {
@@ -195,6 +199,7 @@ async function fire() {
     return;
   }
   cascade.armed = false;
+  sound.activar(); // dentro del clic: los navegadores sólo permiten audio tras un gesto
   const total = ionq ? 1 : clamp(parseInt($("casc-pasos").value, 10) || 12, 1, 60);
   const shots = clamp(parseInt($("casc-shots").value, 10) || 200, 20, 2000);
   const { theta, tau, gamma } = physics();
@@ -209,6 +214,8 @@ async function fire() {
   const idx0 = state.index.get(centro);
   showSourceOnly();
   scene.fireLaser(idx0, Math.sin(theta / 2) ** 2);
+  sound.laser(Math.sin(theta / 2) ** 2);
+  sound.fondoOn();
   narrate("Step 1 · laser", `The laser applies <b>RX(${fmtTheta(theta)})</b> to the qubit of <b>${esc(centro)}</b>. ` +
     `Sending its 10-qubit circuit to <b>${esc(state.backend.nombre)}</b>…`);
   if (ionq) toast("IonQ accepts one job per run: only the first step will run.");
@@ -227,10 +234,14 @@ async function fire() {
       if (r.salto) cascade.centers.push(r.spike);
       renderCascadePanel(r, k, total);
       if (ui.chapter === 2) renderCircuitPanel();
+      const hot = r.spike ? r.ventana.indexOf(r.spike) : -1;
+      const nota = r.spike_indice != null ? notaNeurona(r.spike_indice) : 0;
       if (ui.chapter === 1 && !REDUCED) {
         narrateSuperposition(r);
+        sound.medicion(r.teoria_ventana, hot, nota);
         await scene.collapse(r.ventana_indices, r.teoria_ventana, r.spike_indice);
       }
+      if (r.spike) sound.disparo(nota, r.salto); else sound.vacio();
       applyCascadeScene(r);
       narrateMeasurement(r);
       if (!r.spike) {
@@ -245,6 +256,7 @@ async function fire() {
     toast(`The step failed: ${e.message}`, true);
   } finally {
     cascade.running = false;
+    sound.pararFondo();
     $("casc-stop").disabled = true;
     const bloqueado = state.backend.ionq && state.jobsSent >= 1;
     $("fire-btn").disabled = bloqueado;
@@ -654,6 +666,17 @@ function bindUI() {
     if (auto) toast(`Graphics quality set to "${QUALITY[q].label}" to keep it smooth`);
   });
   $("autorotate").addEventListener("change", () => scene.setAutoRotate($("autorotate").checked));
+
+  // sonido
+  $("sound-btn").addEventListener("click", () => {
+    const on = !sound.on;
+    sound.setOn(on);
+    if (on) sound.activar();
+    $("sound-btn").setAttribute("aria-pressed", String(on));
+    $("sound-label").textContent = on ? "Sound on" : "Sound off";
+    $("sound-icon").innerHTML = on ? SOUND_ON : SOUND_OFF;
+    announce(on ? "Sound on" : "Sound off");
+  });
 
   // panel 2
   $("circ-step").addEventListener("change", () => {

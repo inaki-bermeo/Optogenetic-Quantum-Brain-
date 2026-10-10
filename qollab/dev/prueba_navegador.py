@@ -36,6 +36,12 @@ def main():
         print("narración:", pag.inner_text("#narr-text")[:120])
         pag.screenshot(path=str(out / "1_inicio.png"))
 
+        # sonido: botón para silenciar (aria-pressed)
+        pag.click("#sound-btn")
+        assert pag.get_attribute("#sound-btn", "aria-pressed") == "false" and "off" in pag.inner_text("#sound-btn")
+        pag.click("#sound-btn")
+        assert pag.get_attribute("#sound-btn", "aria-pressed") == "true"
+
         # ayuda "?" y ajustes de laboratorio
         pag.click('button.help[data-help="theta"]')
         assert pag.is_visible("#help-pop"), "la ayuda no se abrió"
