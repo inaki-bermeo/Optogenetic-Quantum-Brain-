@@ -152,6 +152,89 @@ export class Sonido {
     });
   }
 
+  // ---------------------------------------------------------------- interfaz (estilo videojuego)
+  /** Sonidos cortos de interfaz: tick (consola), select, confirm, start (whoosh del título), back. */
+  ui(tipo = "select") {
+    if (!this.listo) return;
+    const ctx = this.ctx, t0 = ctx.currentTime + 0.005;
+    const tono = (f, f1, dur, pico, forma = "square") => {
+      const o = this._osc(forma, f, t0);
+      if (f1) o.frequency.exponentialRampToValueAtTime(f1, t0 + dur);
+      const g = this._env(t0, pico, 0.004, dur / 3, t0 + dur + 0.05);
+      const lp = ctx.createBiquadFilter();
+      lp.type = "lowpass"; lp.frequency.value = 3200;
+      o.connect(lp).connect(g).connect(this.master);
+      o.start(t0); o.stop(t0 + dur + 0.08);
+    };
+    if (tipo === "tick") tono(1800, null, 0.025, 0.035);
+    else if (tipo === "select") tono(660, 990, 0.07, 0.07);
+    else if (tipo === "confirm") { tono(523, 1046, 0.12, 0.08); }
+    else if (tipo === "back") tono(700, 350, 0.09, 0.06);
+    else if (tipo === "start") {
+      // whoosh: ruido filtrado que sube + acorde brillante
+      const n = Math.floor(ctx.sampleRate * 0.9);
+      const buf = ctx.createBuffer(1, n, ctx.sampleRate);
+      const d = buf.getChannelData(0);
+      for (let i = 0; i < n; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / n);
+      const src = ctx.createBufferSource();
+      src.buffer = buf;
+      const bp = ctx.createBiquadFilter();
+      bp.type = "bandpass"; bp.Q.value = 1.2;
+      bp.frequency.setValueAtTime(300, t0);
+      bp.frequency.exponentialRampToValueAtTime(4200, t0 + 0.7);
+      const g = this._env(t0, 0.18, 0.15, 0.25, t0 + 1);
+      src.connect(bp).connect(g).connect(this.master);
+      src.start(t0);
+      [440, 554.4, 659.3].forEach((f, i) => tono(f, f * 2, 0.5 + i * 0.05, 0.05, "triangle"));
+    }
+  }
+
+  /** Riser de carga del láser: empieza al presionar; `nivel` (0..1) sube el tono; `cargaFin` lo corta. */
+  cargaInicio() {
+    if (!this.listo || this._carga) return;
+    const ctx = this.ctx, t0 = ctx.currentTime;
+    const o = this._osc("sawtooth", 110, t0);
+    const lp = ctx.createBiquadFilter();
+    lp.type = "lowpass"; lp.frequency.value = 600; lp.Q.value = 6;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t0);
+    g.gain.exponentialRampToValueAtTime(0.06, t0 + 0.1);
+    o.connect(lp).connect(g).connect(this.master);
+    o.start(t0);
+    this._carga = { o, lp, g };
+  }
+
+  cargaNivel(v) {
+    const C = this._carga;
+    if (!C) return;
+    const t = this.ctx.currentTime;
+    C.o.frequency.setTargetAtTime(110 + 330 * v, t, 0.03);
+    C.lp.frequency.setTargetAtTime(600 + 3600 * v, t, 0.03);
+  }
+
+  cargaFin() {
+    const C = this._carga;
+    if (!C) return;
+    this._carga = null;
+    const t = this.ctx.currentTime;
+    C.g.gain.cancelScheduledValues(t);
+    C.g.gain.setTargetAtTime(0.0001, t, 0.03);
+    C.o.stop(t + 0.2);
+  }
+
+  /** Logro desbloqueado: arpegio corto y brillante. */
+  logro() {
+    if (!this.listo) return;
+    const t0 = this.ctx.currentTime + 0.02;
+    [784, 988, 1175, 1568].forEach((f, i) => {
+      const t = t0 + i * 0.07;
+      const o = this._osc("triangle", f, t);
+      const g = this._env(t, 0.08, 0.005, 0.12, t + 0.5);
+      o.connect(g).connect(this.master);
+      o.start(t); o.stop(t + 0.55);
+    });
+  }
+
   /** No disparó ninguna neurona: golpe grave que cae. */
   vacio() {
     if (!this.listo) return;

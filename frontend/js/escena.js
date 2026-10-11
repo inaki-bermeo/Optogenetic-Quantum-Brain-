@@ -166,6 +166,7 @@ export class WormScene {
       // las animaciones en curso terminan ya: la cascada espera la promesa del colapso
       this._endCollapse();
       this._removeLaser();
+      if (this._tween) { const T = this._tween; this._animateTween(T.dur); }
     }
   }
 
@@ -492,7 +493,7 @@ export class WormScene {
     this.ringGroup.clear();
     // geometría y material compartidos por todos los anillos (se crean una sola vez)
     this._ringGeo ??= new THREE.RingGeometry(0.13, 0.16, 32);
-    this._ringMat ??= this._sw(new THREE.MeshBasicMaterial({ color: "#ffd166", transparent: true, opacity: 0.85,
+    this._ringMat ??= this._sw(new THREE.MeshBasicMaterial({ color: "#3df0ff", transparent: true, opacity: 0.7,
       side: THREE.DoubleSide, toneMapped: false, depthWrite: false }));
     for (const i of indices) {
       const m = new THREE.Mesh(this._ringGeo, this._ringMat);
@@ -512,7 +513,7 @@ export class WormScene {
     }
     if (indices && indices.length >= 2) {
       const g = new THREE.BufferGeometry().setFromPoints(indices.map((i) => this.positions[i]));
-      this.trail = new THREE.Line(g, this._sw(new THREE.LineBasicMaterial({ color: new THREE.Color("#ffb347").multiplyScalar(1.4),
+      this.trail = new THREE.Line(g, this._sw(new THREE.LineBasicMaterial({ color: new THREE.Color("#ff6a2b").multiplyScalar(1.5),
         transparent: true, opacity: 0.95, toneMapped: false, depthWrite: false })));
       this.scene.add(this.trail);
     }
@@ -682,14 +683,14 @@ export class WormScene {
     const pp = new Float32Array(starts.length * 3);
     const pg = new THREE.BufferGeometry();
     pg.setAttribute("position", new THREE.BufferAttribute(pp, 3));
-    const pts = new THREE.Points(pg, this._sw(new THREE.PointsMaterial({ color: new THREE.Color("#ffd28a").multiplyScalar(1.6), size: 0.11,
+    const pts = new THREE.Points(pg, this._sw(new THREE.PointsMaterial({ color: new THREE.Color("#ffb08a").multiplyScalar(1.6), size: 0.11,
       transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false })));
     group.add(pts);
     // destello final sobre la neurona medida
     const target = spikeIdx != null ? this.positions[spikeIdx] : null;
-    const flash = new THREE.Mesh(new THREE.SphereGeometry(0.3, 18, 12), this._glow(new THREE.Color("#ffb347").multiplyScalar(2.6), 0));
+    const flash = new THREE.Mesh(new THREE.SphereGeometry(0.3, 18, 12), this._glow(new THREE.Color("#ff6a2b").multiplyScalar(2.6), 0));
     const ring = new THREE.Mesh(new THREE.RingGeometry(0.24, 0.29, 48),
-      this._glow(new THREE.Color("#ffb347").multiplyScalar(2.2), 0, { side: THREE.DoubleSide }));
+      this._glow(new THREE.Color("#ff6a2b").multiplyScalar(2.2), 0, { side: THREE.DoubleSide }));
     if (target) { flash.position.copy(target); ring.position.copy(target); group.add(flash, ring); }
     this.scene.add(group);
 
@@ -698,11 +699,11 @@ export class WormScene {
     const base = this.activity ? Float32Array.from(this.activity) : new Float32Array(N);
     return new Promise((resolve) => {
       this._collapse = {
-        t: 0, group, resolve,
+        t: 0, T1: superposition, group, resolve,
         update: (dt) => {
           const C = this._collapse;
           C.t += dt;
-          const t = C.t, T1 = superposition, T2 = superposition + collapse, TAIL = 0.45;
+          const T1 = C.T1, t = C.t, T2 = T1 + collapse, TAIL = 0.45;
           if (t >= T2) {
             // cola: la actividad ya la decide main.js; sólo se apaga el destello
             if (!C.done) { C.done = true; pts.visible = false; halos.forEach((h) => { h.visible = false; }); resolve(); }
@@ -770,9 +771,64 @@ export class WormScene {
   }
 
   resetView() {
+    this._tween = null;
     this.camera.position.set(-1.2, 6.0, 23.5);
     this.controls.target.set(0, 0, 0);
     this.controls.update();
+    this.requestRender();
+  }
+
+  /** Superposición en curso → pasar ya al colapso (la intro decide cuándo medir). */
+  collapseNow() {
+    const C = this._collapse;
+    if (C && C.t < C.T1) C.t = C.T1;
+  }
+
+  /** Corta la animación de medida en curso (su promesa se resuelve). */
+  cancelCollapse() { this._endCollapse(); }
+
+  /** Vuelo de cámara (con aceleración) hasta mirar la neurona `index` desde `dist` unidades. */
+  flyTo(index, { dur = 1200, dist = 6 } = {}) {
+    const p = this.positions[index].clone();
+    p.y += this.swimY(p.x);
+    const dir = this.camera.position.clone().sub(this.controls.target).normalize();
+    return this._volar(p.clone().addScaledVector(dir, dist).add(new THREE.Vector3(0, dist * 0.18, 0)), p, dur);
+  }
+
+  /** Vuelve a la vista general. */
+  flyHome(dur = 1200) { return this._volar(new THREE.Vector3(-1.2, 6.0, 23.5), new THREE.Vector3(0, 0, 0), dur); }
+
+  _volar(pos, target, dur) {
+    if (this.reducedMotion || !this._running) {
+      this.camera.position.copy(pos);
+      this.controls.target.copy(target);
+      this.controls.update();
+      this.requestRender();
+      return Promise.resolve();
+    }
+    return new Promise((resolve) => {
+      this._tween?.resolve();
+      this._tween = { t: 0, dur: dur / 1000, resolve, p0: this.camera.position.clone(), p1: pos,
+        q0: this.controls.target.clone(), q1: target };
+    });
+  }
+
+  _animateTween(dt) {
+    const T = this._tween;
+    if (!T) return false;
+    T.t += dt;
+    const u = Math.min(1, T.t / T.dur), e = u < 0.5 ? 4 * u * u * u : 1 - Math.pow(-2 * u + 2, 3) / 2;
+    this.camera.position.lerpVectors(T.p0, T.p1, e);
+    this.controls.target.lerpVectors(T.q0, T.q1, e);
+    if (u >= 1) { this._tween = null; T.resolve(); }
+    return true;
+  }
+
+  /** Modo cine para la pantalla de título: órbita lenta alrededor del gusano. */
+  setCinematic(on) {
+    if (on) { this._autoRotPrev ??= this.controls.autoRotate; this.controls.autoRotateSpeed = 0.55; }
+    this.controls.autoRotate = on ? !this.reducedMotion : (this._autoRotPrev ?? false);
+    if (!on) { this.controls.autoRotateSpeed = 0.35; this._autoRotPrev = null; }
     this.requestRender();
   }
 
@@ -885,6 +941,7 @@ export class WormScene {
     this._last = now;
     const dt = Math.min(0.1, rawDt);
     let active = false;
+    if (this._animateTween(dt)) active = true;
     if (this.controls.update()) active = true; // amortiguación / rotación automática
     if (this._animateLaser(dt)) active = true;
     if (this._collapse && this._collapse.update(dt)) active = true;
