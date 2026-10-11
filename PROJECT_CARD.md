@@ -1,83 +1,240 @@
-# Optogenetic Quantum Brain
+\# Optogenetic Quantum Brain
 
-**A quantum laser on the real *C. elegans* connectome: a 302-neuron quantum walk, and a spike cascade in which every jump is a 10-qubit Qiskit circuit.**
 
-This effort is supported by Qollab & IonQ.
 
-- **Demo video (2–3 min):** [add the public link]
-- **Repository (MIT):** https://github.com/JoaquinQu/Cerebro-Cu-ntico-Optogenetico
+> \*\*A quantum laser on the real \*C. elegans\* connectome: a 302-neuron quantum walk, and a spike cascade in which every jump is a 10-qubit Qiskit circuit.\*\*
 
----
 
-## What it does
 
-In optogenetics, a pulse of light makes a chosen neuron fire, and researchers watch the activity travel through the brain. This project translates that experiment into qubits:
+\[!\[License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 
-| Optogenetics | This project |
-| --- | --- |
-| Neuron at rest / active | Qubit in \|0⟩ / \|1⟩ |
-| Light pulse with dose θ | RX(θ) rotation on the illuminated neuron |
-| Activity travels along synapses | Quantum walk under the XY Hamiltonian on the real connectome |
-| Calcium imaging | Z-basis measurement: 1 = *spike* |
+\[!\[Powered by Qiskit](https://img.shields.io/badge/Powered\_by-Qiskit-6133BD.svg)](https://qiskit.org/)
 
-The page is organised in three chapters, one idea at a time, with a live "What you're seeing" narration over the 3D worm, "?" help next to every technical term, and the advanced settings tucked into a **Lab settings** drawer:
+\[!\[Hardware: IonQ](https://img.shields.io/badge/Hardware-IonQ-000000.svg)](https://ionq.com/)
 
-1. **Light (laser and exact theory).** Pick any of the 302 neurons and the 3D worm shows how the excitation spreads. With a single laser, the 302-qubit XY model reduces *exactly* to a quantum walk with 302 amplitudes, so this part is computed exactly with NumPy and serves as the reference.
-2. **Measure (quantum spike cascade with Qiskit).** Each step is a 10-qubit circuit: the neuron that fired and its 9 neighbours with the most synapses. The XY evolution is built with `PauliEvolutionGate` + `SuzukiTrotter` and runs on the selected backend (**one job per step**). The neuron that comes out as 1 in a random shot triggers the next step; the spike jumps across the worm and leaves a trail. Each measurement is animated in 3D: the window neurons pulse together in superposition, then collapse onto the neuron that came out as 1, while a small circuit diagram shows that step's gates and measured bits.
-3. **Inside the circuit (touch-reflex microcircuit with Qiskit).** A 6- to 10-qubit circuit (RX + RXX·RYY, via Trotter or Givens), compared with the exact theory, with an IonQ Forte-like noise model and with what the backend measures, using symmetry post-selection.
 
-Every circuit can be shown drawn with `QuantumCircuit.draw("mpl")`, together with its count histogram.
 
-## What problem it explores
+\*\*Supported by Qollab \& IonQ\*\*
 
-Hamiltonian simulation is one of the most natural applications of a quantum computer, but it is hard to *see*. Here you can see it:
 
-- the laser is a rotation, every synapse is an XY coupling, and propagation is interference;
-- parts of the worm stay dark because paths cancel each other out;
-- the **"What changes when you measure?"** section compares the coherent walk, the walk measured every τ, the 10-qubit cascade, and a classical random walk. It shows that measuring destroys interference and that measuring too often freezes propagation (the **quantum Zeno effect**).
 
-It also shows the real steps needed to take the physics to hardware: Trotterization and its error, transpilation to the backend, and error mitigation through conservation of the excitation number.
+\*\*Demo video (2–3 min):\*\* \[Add your public link here]  
 
-## How to run it
+\*\*Repository:\*\* \[https://github.com/JoaquinQu/Cerebro-Cu-ntico-Optogenetico](https://github.com/JoaquinQu/Cerebro-Cu-ntico-Optogenetico)
 
-1. Press **Run** and pick a backend. With the **Built-in simulator** everything is immediate and free.
-2. **Chapter 1 · Light:** pick a neuron (or click one on the worm) and press **Fire laser**. Move θ to see how the light dose scales the response.
-3. **Chapter 2 · Measure:** press **Start cascade** and watch each measurement collapse the wave. Try τ = 8 (the excitation moves) and τ = 2 (it barely moves: Zeno effect; τ is in the chapter, steps and shots in Lab settings). Then open **"What changes when you measure?"** and press **Compute comparison**. **Show the cascade circuits** draws each step with Qiskit.
-4. **Chapter 3 · Inside the circuit:** pick the microcircuit, the mode and the time t, and press **Run circuit**: one job with 4 times, compared with theory (raw and post-selected TVD).
-5. **IonQ:** on *IonQ Forte 1 (Remote simulator)*, which is free, each Run allows one job. The page respects this: the cascade runs one step and then locks the button. For another job, press Stop and Run.
 
-The page is keyboard accessible (chapter tabs with the arrow keys; with focus on the worm: Space, ←/→, R; Esc closes help and settings), announces results to screen readers, has a data table behind every chart, and respects *prefers-reduced-motion*.
 
-## How it works (theory summary)
+\---
 
-- **Connectome → matrix J.** The chemical and electrical synapses from Cook et al. (2019) are symmetrized with binary weights (connected or not) and normalized by the largest eigenvalue, so that ‖J‖ = 1.
-- **XY Hamiltonian.** H = γ Σ J_ij (X_i X_j + Y_i Y_j)/2 conserves the number of excitations. In the single-excitation sector it is exactly γJ: the continuous-time quantum walk of Farhi and Gutmann.
-- **Central result.** For a laser θ on neuron j: P_k(t) = sin²(θ/2) · |[e^(−iγJt)]_kj|².
-- **Circuit.** Each hop e^(−iα(XX+YY)/2) = RXX(α)·RYY(α). The walk is approximated with second-order Trotter–Suzuki (error O(t³/r²)).
-- **Mitigation.** With one laser, no ideal measurement has more than one neuron at 1: those shots are discarded (symmetry post-selection).
 
-With a single laser the problem is classically simulable: the hardware does not speed it up; it demonstrates the physics and measures how much noise and approximation degrade it. The classically hard regime appears with several simultaneous lasers (hard-core bosons), and the Trotter circuit already supports it.
 
-## How to replicate and extend it
+\## Executive Summary \& Core Concept
 
-All the code is in this project and in the repository. `qollab/tests` contains 24 automated tests that check, among other things:
 
-- single-excitation XY = walk;
-- Trotter convergence and Givens exactness;
-- `PauliEvolutionGate` against the theory;
-- post-selection, one job per run, and the Qiskit figures.
 
-The harness `qollab/dev/servidor.py` reproduces the Qollab environment on a local computer. The full theory is in `docs/TEORIA.md` and `docs/teoria_tex/` (in Spanish).
+In biological optogenetics, researchers illuminate a specific neuron with a laser to force it to fire, allowing them to observe the resulting activity as it propagates through the brain's network. This project translates that precise biological experiment into the realm of quantum computing.
 
-Ideas to extend it: several simultaneous lasers, directed synapses (chiral or stochastic quantum walks), inhibitory synapses with negative sign, other connectomes (*Drosophila*), or measuring in the X basis to reveal coherence.
 
-## Prior work and credits
 
-[To complete with the team: what existed before the hackathon build window and what was added during it. The rules require this on the project page.]
+By mapping the 302 neurons of the \*C. elegans\* connectome directly to qubits, we allow users to interactively visualize and simulate quantum interference, state superposition, and the quantum Zeno effect propagating through a biological neural network in real-time.
 
-- **Data:** connectome from Cook et al., *Nature* 571, 63 (2019), via OpenWorm c302. Neuron positions: OpenWorm CElegansNeuroML. Touch reflex: Chalfie et al. (1985). Optogenetics in *C. elegans*: Nagel et al. (2005).
-- **Libraries:** Qiskit, NumPy, SciPy, matplotlib and three.js.
 
-**Themes:** Quantum Unlocked · Quantum Playground. **License:** MIT.
 
-This effort is supported by Qollab & IonQ.
+| Biological Optogenetics | Quantum Hardware Translation |
+
+| :--- | :--- |
+
+| \*\*Neuron state\*\* (rest / active) | \*\*Qubit state\*\* ($\\vert{}0\\rangle$ / $\\vert{}1\\rangle$) |
+
+| \*\*Light pulse\*\* (dose $\\theta$) | \*\*$R\_X(\\theta)$ rotation\*\* on the target qubit |
+
+| \*\*Synaptic propagation\*\* | \*\*Quantum walk\*\* under the XY Hamiltonian |
+
+| \*\*Calcium imaging observation\*\* | \*\*Z-basis measurement\*\* (State $1$ = \*spike\*) |
+
+
+
+\---
+
+
+
+\## Interactive Visualization Platform
+
+
+
+The simulation functions as both an educational platform and a scientific sandbox, structured into three progressive chapters. It features a live "What you are seeing" narrative overlaid on a 3D structural model of the worm, contextual definitions for technical terms, and a dedicated \*\*Lab settings\*\* interface for granular control.
+
+
+
+\### 1. Light: The Continuous Wave
+
+Users select any of the 302 neurons and fire the simulated laser. Because a single laser acting on the 302-qubit XY model reduces exactly to a quantum walk with 302 amplitudes, this chapter is computed with perfect precision via NumPy. It serves as the theoretical baseline, demonstrating how excitation spreads purely as probability waves before measurement collapses the state.
+
+
+
+\### 2. Measure: The Quantum Spike Cascade
+
+Each step in the cascade is a dynamic 10-qubit circuit comprising the firing neuron and its 9 most heavily connected neighbors. 
+
+\* The XY evolution is constructed using `PauliEvolutionGate` and `SuzukiTrotter`, executing on the selected backend while respecting strict one-job-per-step API limits.
+
+\* The measurement process collapses the wave. The neuron that measures as $1$ in a randomly selected valid shot triggers the subsequent step, creating a branching spike cascade across the worm.
+
+\* Visual and auditory feedback trace the jump, while a real-time circuit diagram dynamically displays the active gates and measured bits.
+
+
+
+\### 3. Inside the Circuit: Hardware Implementation
+
+This chapter isolates a touch-reflex microcircuit (6 to 10 qubits) for deep technical analysis. It compares the exact theoretical progression against an IonQ Forte-like noise model. Users can analyze Trotterization errors, backend transpilation effects, and the impact of symmetry post-selection to mitigate physical hardware errors.
+
+
+
+\---
+
+
+
+\## Theoretical Framework \& Mathematical Formulation
+
+
+
+The physical mapping from biology to quantum mechanics relies on strict mathematical equivalencies, processed natively through Qiskit.
+
+
+
+\*\*1. The Connectome Matrix ($J$)\*\*
+
+The chemical and electrical synapses derived from Cook et al. (2019) are symmetrized using binary weights (connected or disconnected). The matrix is then normalized by its largest eigenvalue to ensure $\\Vert{}J\\Vert{} = 1$.
+
+
+
+\*\*2. The XY Hamiltonian\*\*
+
+Propagation is governed by a Hamiltonian that strictly conserves the number of excitations. 
+
+
+
+$$H = \\frac{\\gamma}{2} \\sum\_{i,j} J\_{ij} (X\_i X\_j + Y\_i Y\_j)$$
+
+
+
+In the single-excitation sector, this reduces precisely to $\\gamma J$, functioning as the continuous-time quantum walk described by Farhi and Gutmann.
+
+
+
+\*\*3. State Evolution \& Probability\*\*
+
+For a laser applied to neuron $j$ with an intensity dose $\\theta$, the probability of finding the excitation at neuron $k$ at time $t$ is dictated by the unitary evolution:
+
+
+
+$$P\_k(t) = \\sin^2\\left(\\frac{\\theta}{2}\\right) \\left\\vert{} \\langle k \\vert{} e^{-i\\gamma J t} \\vert{} j \\rangle \\right\\vert{}^2$$
+
+
+
+\*\*4. Trotterization \& Circuit Synthesis\*\*
+
+To implement continuous evolution on discrete gate-based hardware, the quantum walk is approximated using a second-order Trotter–Suzuki decomposition, yielding an error scaling of $\\mathcal{O}(t^3 / r^2)$. Each synaptic connection is decomposed into physical hardware instructions:
+
+
+
+$$e^{-i\\alpha(X X + Y Y)/2} = R\_{XX}(\\alpha) \\cdot R\_{YY}(\\alpha)$$
+
+
+
+\*\*5. Error Mitigation via Post-Selection\*\*
+
+Since a single laser initializes exactly one excitation, any hardware measurement returning multiple $1$s is demonstrably an error. These unphysical shots are automatically discarded using symmetry post-selection, significantly improving the Total Variation Distance (TVD) of the hardware output.
+
+
+
+\---
+
+
+
+\## Scientific Exploration \& Educational Impact
+
+
+
+Hamiltonian simulation is theoretically profound but notoriously difficult to visualize. This project makes abstract quantum mechanics tangible:
+
+\* \*\*Interference:\*\* Users can observe "dark regions" in the worm where quantum paths perfectly cancel each other out.
+
+\* \*\*The Quantum Zeno Effect:\*\* By adjusting the measurement interval ($\\tau$), the simulation demonstrates that measuring a quantum system too frequently effectively freezes its evolution, hindering the wave's propagation.
+
+\* \*\*Hardware Realities:\*\* The tool exposes the real steps required to run physics on a QPU, including transpilation depth overhead and the necessity of algorithmic error mitigation.
+
+
+
+\---
+
+
+
+\## Running the Simulation
+
+
+
+1\. \*\*Select Backend:\*\* Press \*\*Run\*\* and select a target. The built-in simulator executes immediately. On \*IonQ Forte 1 (Remote Simulator)\*, the system respects API quotas by running a single cascade step per execution.
+
+2\. \*\*Execute Chapter 1:\*\* Select a source neuron on the 3D model, adjust the laser dose ($\\theta$), and press \*\*Fire laser\*\* to view the exact state vector amplitudes.
+
+3\. \*\*Execute Chapter 2:\*\* Press \*\*Start cascade\*\* to observe the measurement collapse. Compare $\\tau = 8$ (free propagation) with $\\tau = 2$ (Zeno effect restriction). Use the \*\*Compute comparison\*\* tool to analytically contrast the coherent walk, the measured walk, the 10-qubit cascade, and a classical random walk counterpart.
+
+4\. \*\*Execute Chapter 3:\*\* Select a specific microcircuit configuration and press \*\*Run circuit\*\* to execute a unified job across 4 time intervals, instantly comparing raw hardware results against post-selected TVD curves.
+
+
+
+\*(Note: The interface is fully keyboard-navigable, screen-reader compatible, provides raw data tables for every chart, and respects standard `prefers-reduced-motion` settings).\*
+
+
+
+\---
+
+
+
+\## Future Horizons
+
+
+
+While a single-excitation quantum walk can be simulated efficiently on classical hardware, this platform's underlying Trotterized architecture natively supports the classically intractable regime of multiple simultaneous lasers (hard-core bosons). Future expansions could incorporate directed synapses for chiral quantum walks, inhibitory connections (utilizing negative $J\_{ij}$ weights), and full X-basis measurements to actively reveal off-diagonal coherence terms.
+
+
+
+\---
+
+
+
+\## Prior Work \& Acknowledgements
+
+
+
+\*\*Hackathon Transparency Declaration\*\*
+
+\[Specify precisely what was conceptualized prior to the event, and what was developed, coded, and integrated during the hackathon build window to ensure compliance with judging criteria. e.g., "The core XY Hamiltonian theory was conceptualized prior to the event. The entire 3D interactive interface, Qiskit Trotterization integration, IonQ API connection, and DSP audio engine were built entirely during the 48-hour hackathon window."]
+
+
+
+\*\*Data Sources \& Literature\*\*
+
+\* \*\*Connectome:\*\* Cook et al., \*Nature\* 571, 63 (2019), via OpenWorm c302.
+
+\* \*\*Neuron Positions:\*\* OpenWorm CElegansNeuroML.
+
+\* \*\*Touch Reflex Circuit:\*\* Chalfie et al. (1985).
+
+\* \*\*Optogenetics Application:\*\* Nagel et al. (2005).
+
+
+
+\*\*Technology Stack\*\*
+
+\* Qiskit, NumPy, SciPy, Matplotlib, Three.js.
+
+
+
+\*\*Project Details\*\*
+
+\* \*\*Hackathon Themes:\*\* Quantum Unlocked, Quantum Playground.
+
+\* \*\*License:\*\* MIT.
+
