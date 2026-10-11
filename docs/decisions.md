@@ -27,7 +27,7 @@ The important decisions behind the project, with the reason for each and where i
 | **Every Python API function returns JSON text** | Avoids depending on how Pyodide converts dicts and lists | `api._json`, `js/python.js` |
 | **The backend contains only what the page calls**; analysis lives in `tools/`, references in `tests/` | Smaller download, and a clear contract | (PR #2) |
 | **English UI, Spanish code** | The audience is international; the team writes code in Spanish. [glossary.md](glossary.md) bridges the two | — |
-| **Theory docs stay in Spanish** (`theory.md`, `cascade.md`, `3d-model.md`) | Written by the team; English summaries live on the card and in architecture.md | — |
+| **`theory.md` is in English; `cascade.md`, `3d-model.md` and `theory_tex/` stay in Spanish** | `theory.md` is the physics a reviewer reads, so it was translated; the others are working notes and papers written by the team. English summaries live on the card and in architecture.md | — |
 
 ## Design and UX
 

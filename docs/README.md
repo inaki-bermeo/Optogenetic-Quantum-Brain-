@@ -21,7 +21,7 @@ Optogenetic Quantum Brain is a single web page that runs inside **Qollab**. A "l
 | `backend/cerebro_q` or the JSON the page receives | [backend.md](backend.md) |
 | The spike cascade (window of 10 neurons, τ, Zeno effect) | [cascade.md](cascade.md) (Spanish) |
 | What the worm does when a neuron fires; the swim/behaviour shader | [behaviour.md](behaviour.md) |
-| The physics: J, XY Hamiltonian, laser, Trotter, IonQ compilation, post-selection | [theory.md](theory.md) (Spanish), [theory_tex/](theory_tex/) |
+| The physics: J, XY Hamiltonian, laser, Trotter, IonQ compilation, post-selection | [theory.md](theory.md), [theory_tex/](theory_tex/) (LaTeX papers, in Spanish) |
 | The 3D body mesh and coordinate frames | [3d-model.md](3d-model.md) (Spanish) |
 | The anatomical worm (organs, Blender generator) and its curvature kinematics | [worm-model.md](worm-model.md) |
 | Features discussed but not built yet (IonQ replays, n lasers, …) | [proposals/](proposals/README.md) |
