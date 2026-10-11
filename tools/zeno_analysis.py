@@ -1,6 +1,6 @@
 """Measurement vs. coherence in the spike cascade (offline analysis; not uploaded to Qollab).
 
-    python tools/zeno_analysis.py                 # τ table for AVM (the one in PROJECT_CARD.md)
+    python tools/zeno_analysis.py                 # τ table for AVM (the one on the project page)
     python tools/zeno_analysis.py --centro ALML --taus 2 4 8
 
 Reproduces the numbers quoted in the docs (docs/cascade.md §2):
