@@ -1,6 +1,6 @@
 // Sonido de la cascada, sintetizado en vivo con Web Audio (sin archivos .wav).
 //
-// Basado en el motor DSP del equipo (backend/audio_dsp.py), pero sincronizado con lo que mide
+// Basado en el motor DSP del equipo (prototipo: git show 0c3e4e5:backend/audio_dsp.py), sincronizado con lo que mide
 // cada circuito:
 //   * láser:          barrido descendente 2500 → 100 Hz con decaimiento rápido (el "piu");
 //   * superposición:  un oscilador levemente desafinado por neurona de la ventana, con trémolo,
@@ -14,8 +14,10 @@
 //                     escala (La mayor pentatónica) apagados por un filtro que se mueve como el agua,
 //                     un oleaje de ruido grave, burbujas lejanas de vez en cuando y reverberación.
 //                     Baja de volumen durante la medición para no tapar los sonidos importantes.
-// Los navegadores sólo permiten audio después de un gesto del usuario: el contexto se crea al
-// presionar Fire laser.
+// Los navegadores sólo permiten audio después de un gesto del usuario: el contexto se crea con el
+// primer gesto (PRESS START en la intro, o el primer clic/tecla).
+
+import { T_COLAPSO, T_SUPERPOSICION } from "./util.js";
 
 const PENTA = [0, 2, 4, 7, 9]; // semitonos de la escala pentatónica
 
@@ -39,7 +41,8 @@ export class Sonido {
     if (!this.ctx) {
       const AC = globalThis.AudioContext || globalThis.webkitAudioContext;
       if (!AC) return false;
-      this.ctx = new AC();
+      // "playback": búferes más grandes, menos trabajo del hilo de audio (no hace falta latencia mínima)
+      try { this.ctx = new AC({ latencyHint: "playback" }); } catch { this.ctx = new AC(); }
       const comp = this.ctx.createDynamicsCompressor();
       comp.threshold.value = -14;
       comp.ratio.value = 4;
@@ -100,7 +103,7 @@ export class Sonido {
    * probs: probabilidad de cada neurona de la ventana · hot: índice (en la ventana) de la medida o -1
    * nota: Hz de la neurona medida · t1: duración de la superposición · t2: duración del colapso.
    */
-  medicion(probs, hot, nota, t1 = 0.9, t2 = 0.75) {
+  medicion(probs, hot, nota, t1 = T_SUPERPOSICION, t2 = T_COLAPSO) {
     if (!this.listo) return;
     const ctx = this.ctx, t0 = ctx.currentTime + 0.02, tc = t0 + t1, tf = tc + t2;
     const tot = probs.reduce((a, b) => a + Math.max(0, b), 0) || 1;
@@ -324,16 +327,18 @@ export class Sonido {
   }
 
   // ---------------------------------------------------------------- música de fondo (submarina)
-  /** Respuesta al impulso para la reverberación: ruido estéreo con caída exponencial (sala grande y húmeda). */
-  _reverb(seg = 4.5) {
+  /**
+   * Respuesta al impulso para la reverberación: ruido con caída exponencial (sala grande y húmeda).
+   * Mono y de 2 s: la convolución corre todo el tiempo que suena la música, y su costo crece con el largo
+   * y los canales del impulso (antes 4.5 s estéreo, ~4.5 veces más trabajo).
+   */
+  _reverb(seg = 2) {
     const ctx = this.ctx;
-    if (!this._bufReverb) { // se calcula una sola vez (≈ 400 000 muestras)
+    if (!this._bufReverb) { // se calcula una sola vez
       const n = Math.floor(ctx.sampleRate * seg);
-      const buf = ctx.createBuffer(2, n, ctx.sampleRate);
-      for (let c = 0; c < 2; c++) {
-        const d = buf.getChannelData(c);
-        for (let i = 0; i < n; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / n, 3.2);
-      }
+      const buf = ctx.createBuffer(1, n, ctx.sampleRate);
+      const d = buf.getChannelData(0);
+      for (let i = 0; i < n; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / n, 2.6);
       this._bufReverb = buf;
     }
     const conv = ctx.createConvolver();
@@ -420,7 +425,7 @@ export class Sonido {
     M.nodos = null;
   }
 
-  /** Volumen de la música (0..1, el control de Lab settings). */
+  /** Volumen de la música (0..1, el control del menú de ajustes). */
   setMusicaVol(v) {
     this.musica.vol = v;
     if (v <= 0) this.musicaOff(); // en 0 se apaga del todo (no sólo se baja)

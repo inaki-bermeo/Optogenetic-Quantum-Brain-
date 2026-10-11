@@ -29,7 +29,7 @@ const REF = {
 };
 
 /** Programas: reversa, avance, escape (reversa + giro omega), omega, cabeza, flexion, relajar, bombeo, puesta, quietud, tendencia. */
-export const CONDUCTAS = [
+const CONDUCTAS = [
   { patron: /^AV[ADE][LR]$/, programa: "reversa", clase: "command interneuron", empuje: -0.8,
     texto: "backward (reversal)", ref: [REF.chalfie, REF.zheng] },
   { patron: /^(AVB|PVC)[LR]$/, programa: "avance", clase: "command interneuron", empuje: 0.8,
@@ -80,11 +80,13 @@ function ladoDe(nombre, entrada) {
 }
 
 export class Motor {
-  constructor() { this.d = 0; this.ultima = null; }
+  constructor() { this.d = 0; }
 
-  /** Suma el empuje de la neurona y devuelve el evento a animar (o null si no tiene conducta conocida). */
-  aplicar(nombre) {
-    const entrada = conductaDe(nombre);
+  /**
+   * Suma el empuje de la neurona y devuelve el evento a animar (o null si no tiene conducta conocida).
+   * `entrada` evita repetir la búsqueda si quien llama ya la hizo.
+   */
+  aplicar(nombre, entrada = conductaDe(nombre)) {
     if (!entrada) return null;
     if (entrada.escala != null) this.d *= entrada.escala;
     this.d = Math.max(-1, Math.min(1, this.d + entrada.empuje));
