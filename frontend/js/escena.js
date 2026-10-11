@@ -62,35 +62,35 @@ const S_TR = 0.028; // ejes transversales (×1.4 respecto del real, para leer me
 const GLTF_SCALE = 0.01; // 1 unidad glTF = 100 µm  (ver docs/3d-model.md)
 const SWIM_FRAME = 1 / 30; // el nado, si es lo único que se mueve, se dibuja a 30 cuadros por segundo
 
-// Nado: onda dorsoventral y = A·(0.3 + 0.7·s)·sin(k(x − x0) − φ), s = 0 en la cabeza y 1 en la cola.
-// φ avanza con signo: positivo, la onda viaja de la cabeza a la cola (avance); negativo, al revés (reversa).
-// Encima, las conductas de js/conducta.js: oscilación de la cabeza, flexión o relajación local y la
-// curva ventral del giro omega (deformador de flexión alrededor del centro del cuerpo).
-// Y es el eje dorsoventral: ventral = −Y. deform() en JS repite exactamente esta cuenta.
-const SWIM_AMP = 0.13;
+// Movimiento: cinemática de curvatura, como la producen los músculos del gusano real.
+// Cada movimiento es un perfil de curvatura κ(s) a lo largo del cuerpo (s = 0 cabeza, 1 cola): la onda del
+// reptar κ = A·sin(2πs/λ − φ) (φ creciente: la onda va de la cabeza a la cola, avance; decreciente: reversa),
+// la flexión o relajación local, la oscilación de la cabeza y el giro omega (curvatura ventral uniforme).
+// En JS se integra la línea media con el largo del cuerpo constante (anclada a mitad del cuerpo) y cada
+// sección gira rígida con su tangente: órganos, somas y sinapsis se doblan con el cuerpo a cualquier amplitud.
+// La tabla (CURVA_N muestras a lo largo de x) va en una textura: fila 0 = (C.x, C.y, C₀.x, C₀.y) deformada y
+// en reposo, fila 1 = (cos Δ, sin Δ) del giro de cada sección. Y es el eje dorsoventral: ventral = −Y.
+// deform() en JS repite exactamente esta cuenta (picking, etiquetas, cámara).
+const CURVA_N = 64;
 const SWIM_GLSL = /* glsl */`
-  uniform float uSwimAmp; uniform float uSwimT; uniform float uSwimFase; uniform float uSwimK; uniform float uSwimX0; uniform float uSwimL;
-  uniform float uCabeza; uniform vec3 uFlex; uniform vec3 uRelaja; uniform float uBend;
-  vec3 wormDeform(vec3 p){
-    float s = clamp((p.x - uSwimX0) / uSwimL, 0.0, 1.0);
-    float g = (s - uRelaja.x) / uRelaja.z;
-    float amp = uSwimAmp * (0.3 + 0.7 * s) * (1.0 - uRelaja.y * exp(-g * g));
-    float y = p.y + amp * sin(uSwimK * (p.x - uSwimX0) - uSwimFase);
-    float h = max(0.0, 1.0 - s / 0.22);
-    y += uCabeza * h * h * sin(uSwimT * 5.0);
-    float f = (s - uFlex.x) / uFlex.z;
-    y += uFlex.y * exp(-f * f);
-    if (abs(uBend) > 1e-4) {
-      float xm = uSwimX0 + 0.5 * uSwimL, R = uSwimL / uBend, th = uBend * (p.x - xm) / uSwimL, r = R - y;
-      return vec3(xm + r * sin(th), R - r * cos(th), p.z);
-    }
-    return vec3(p.x, y, p.z);
+  uniform float uSwimT; uniform sampler2D uCurva; uniform vec2 uCurvaX;
+  void wormCurva(float x, out vec2 C, out vec2 C0, out vec2 R){
+    float u = clamp((x - uCurvaX.x) / (uCurvaX.y - uCurvaX.x), 0.0, 1.0) * ${CURVA_N - 1}.0;
+    int i = int(min(floor(u), ${CURVA_N - 2}.0));
+    float f = u - float(i);
+    vec4 m = mix(texelFetch(uCurva, ivec2(i, 0), 0), texelFetch(uCurva, ivec2(i + 1, 0), 0), f);
+    R = normalize(mix(texelFetch(uCurva, ivec2(i, 1), 0).xy, texelFetch(uCurva, ivec2(i + 1, 1), 0).xy, f));
+    C = m.xy; C0 = m.zw;
   }
-  // gira la normal con la tangente de la línea media (el cuerpo se curva, no sólo se traslada)
+  vec3 wormDeform(vec3 p){
+    vec2 C, C0, R; wormCurva(p.x, C, C0, R);
+    vec2 o = p.xy - C0;
+    return vec3(C + vec2(R.x * o.x - R.y * o.y, R.y * o.x + R.x * o.y), p.z);
+  }
+  // la normal gira con la sección (exacto: el mismo giro que la posición)
   vec3 wormNormal(vec3 p, vec3 n){
-    vec3 t = wormDeform(p + vec3(0.01, 0.0, 0.0)) - wormDeform(p - vec3(0.01, 0.0, 0.0));
-    float a = atan(t.y, t.x), c = cos(a), sn = sin(a);
-    return normalize(vec3(c * n.x - sn * n.y, sn * n.x + c * n.y, n.z));
+    vec2 C, C0, R; wormCurva(p.x, C, C0, R);
+    return normalize(vec3(R.x * n.x - R.y * n.y, R.y * n.x + R.x * n.y, n.z));
   }
 `;
 const PROJECT_SWIM = /* glsl */`
@@ -108,13 +108,32 @@ const PROJECT_SWIM = /* glsl */`
 `;
 
 const SWIM_W = (2 * Math.PI) / 3.2; // un ciclo cada 3.2 s: lento y suave
-// Valores de reposo de la conducta: dir/freq de la onda, amplitud relativa, cabeza, flexión local,
-// relajación local, curva omega (rad, ventral < 0), bombeo de la faringe y brillo del cuerpo.
+const LAMBDA = 0.65; // longitud de onda del reptar, en largos del cuerpo (gusano real en agar: ~0.6–0.7)
+const KAPPA_NADO = 2.2; // curvatura máxima del nado tranquilo, en rad por largo del cuerpo (κ·L); reversa ≈ 6.6
+const K_FLEX = 6; // flexión local: flex = 0.8 → ≈ 0.75 rad de giro total en la zona del músculo
+const K_CABEZA = 14; // oscilación de la cabeza (κ·L en la punta por unidad de "cabeza")
+// Valores de reposo de la conducta: dir/freq de la onda, amplitud relativa (× KAPPA_NADO), cabeza, flexión
+// local, relajación local, giro omega (curvatura total en rad, ventral < 0), bombeo de la faringe y brillo.
 const MOTION_REPOSO = { dir: 1, freq: 1, amp: 1, cabeza: 0, flex: 0, relaja: 0, bend: 0, bombeo: 0, brillo: 1 };
 const MOTION_TAU = { dir: 0.35, freq: 0.3, amp: 0.25, cabeza: 0.25, flex: 0.25, relaja: 0.3, bend: 0.45, bombeo: 0.15, brillo: 0.4 };
 
 // maxPx: tope de píxeles internos del lienzo (el lienzo ocupa toda la pantalla; en monitores grandes
 // se baja la resolución interna en vez de dibujar millones de píxeles con bloom).
+// Órganos que puede traer el .glb, reconocidos por nombre (el triturador antes que la faringe: su nombre la incluye)
+const ORGANOS = [
+  ["grinder", /grinder|triturador/], ["faringe", /faringe|pharynx/], ["anillo", /anillo|nerve.?ring/],
+  ["intestino", /intestin/], ["gonada", /gonad/], ["huevos", /huevo|egg|embri/], ["cuerpo", /cuerpo|body/],
+];
+// Aspecto de cada órgano (microscopio de fluorescencia, paleta del HUD)
+const MATERIAL_ORGANO = {
+  grinder: { color: "#bfefff", rim: "#ffffff", strength: 0.55, fill: 0.3, pump: true },
+  anillo: { color: "#a78bfa", rim: "#d9ccff", strength: 0.4, fill: 0.22 }, // neuropilo: violeta de las interneuronas
+  intestino: { color: "#3fd1b0", rim: "#9cf5dc", strength: 0.3, fill: 0.2, grain: 0.5 },
+  // gónada y huevos se superponen con el intestino y las dos capas del cuerpo (mezcla aditiva): más tenues
+  gonada: { color: "#f5a65b", rim: "#ffd9a8", strength: 0.2, fill: 0.12, grain: 0.25 },
+  huevos: { color: "#3fd1b0", rim: "#d8fff4", strength: 0.2, fill: 0.12, grain: 0.35 },
+};
+
 export const QUALITY = {
   alta: { label: "High", pixelRatio: () => Math.min(window.devicePixelRatio, 1.75), bloom: true, bloomScale: 1, maxPx: 2.1e6 },
   media: { label: "Medium", pixelRatio: () => 1, bloom: true, bloomScale: 0.5, maxPx: 1.2e6 },
@@ -181,11 +200,13 @@ export class WormScene {
 
     this.reducedMotion = REDUCED;
     // uniforms compartidos por todos los materiales que ondulan
+    this._curva = this._nuevaCurva();
     this.swimU = {
-      uSwimAmp: { value: 0 }, uSwimT: { value: 0 }, uSwimFase: { value: 0 }, uSwimK: { value: 1 }, uSwimX0: { value: 0 },
-      uSwimL: { value: 1 }, uCabeza: { value: 0 }, uFlex: { value: new THREE.Vector3(0.5, 0, 0.1) },
-      uRelaja: { value: new THREE.Vector3(0.5, 0, 0.1) }, uBend: { value: 0 }, uBrillo: { value: 1 },
+      uSwimT: { value: 0 }, uBrillo: { value: 1 },
+      uCurva: { value: this._curva.tex }, uCurvaX: { value: new THREE.Vector2(0, 1) },
     };
+    this._fase = 0; // fase de la onda del reptar
+    this._flexS = 0.5; this._flexW = 0.09; this._relajaS = 0.5; // dónde actúan la flexión y la relajación
     this.swim = { enabled: !REDUCED, target: REDUCED ? 0 : 1, level: 0, rampa: 0.9 };
     // conducta en curso (ver actuar): cada valor se acerca suavemente a su objetivo
     this.motion = { ...MOTION_REPOSO };
@@ -373,9 +394,12 @@ export class WormScene {
       const gltf = await new GLTFLoader().parseAsync(this.glbBytes, "");
       this.glbBytes = null; // ya parseado: no hace falta guardar los bytes
       const group = new THREE.Group();
+      const organos = {};
       let cuerpo = null, faringe = null;
       gltf.scene.updateMatrixWorld(true);
       gltf.scene.traverse((obj) => {
+        const vulva = obj.userData?.vulva_um; // extras del modelo de Blender (tools/blender/modelo_gusano.py)
+        if (Array.isArray(vulva)) this._vulvaDatos = vulva;
         if (!obj.isMesh) return;
         const geo = obj.geometry.clone();
         geo.applyMatrix4(obj.matrixWorld);
@@ -388,10 +412,13 @@ export class WormScene {
         geo.deleteAttribute("normal");
         geo.computeVertexNormals();
         const name = `${obj.name} ${obj.material?.name ?? ""}`.toLowerCase();
-        if (/faringe|pharynx/.test(name)) faringe = geo; else if (!cuerpo) cuerpo = geo;
+        const rol = ORGANOS.find(([, re]) => re.test(name))?.[0];
+        if (rol === "faringe") faringe = geo;
+        else if (rol && rol !== "cuerpo") organos[rol] ??= geo;
+        else if (!cuerpo) cuerpo = geo;
       });
       if (!cuerpo) throw new Error("empty glb");
-      this._buildAnatomy(group, cuerpo, faringe);
+      this._buildAnatomy(group, cuerpo, faringe, organos);
       this.body = group;
       this.scene.add(group);
     } catch (err) {
@@ -405,12 +432,18 @@ export class WormScene {
     this.requestRender();
   }
 
-  /** Cuerpo (dos capas: pared interna tenue + cutícula con anillos), faringe e intestino. */
-  _buildAnatomy(group, cuerpo, faringe) {
+  /**
+   * Cuerpo (dos capas: pared interna tenue + cutícula con anillos), faringe e intestino, más los órganos
+   * del modelo de Blender si vienen en el .glb (triturador, anillo nervioso, gónada, huevos en el útero).
+   * Un .glb viejo (sólo cuerpo y faringe) sigue funcionando: el intestino se arma aquí.
+   */
+  _buildAnatomy(group, cuerpo, faringe, organos = {}) {
     cuerpo.computeBoundingBox();
     const bb = cuerpo.boundingBox;
     this.bodyBox = bb;
-    this._setSwimFrame(bb.min.x, bb.max.x);
+    const linea = this._centerline(cuerpo, 64);
+    this._linea = linea; // también ubica la vulva (puesta de huevos)
+    this._initCurva(linea, bb.min.x, bb.max.x); // reposo de la cinemática: la misma línea media que el cuerpo
     // pared interna (caras traseras) y cutícula (caras delanteras)
     group.add(new THREE.Mesh(cuerpo, this._bodyMaterial({ color: "#1d5fe0", rim: "#4fc3ff", strength: 0.4, fill: 0.14,
       side: THREE.BackSide })));
@@ -421,10 +454,12 @@ export class WormScene {
         pump: this._pumpU })));
       faringe.computeBoundingBox();
     }
+    for (const [rol, geo] of Object.entries(organos)) {
+      const m = MATERIAL_ORGANO[rol];
+      if (m) group.add(new THREE.Mesh(geo, this._bodyMaterial({ ...m, pump: m.pump ? this._pumpU : null })));
+    }
     // intestino: tubo a lo largo de la línea media, desde el bulbo posterior de la faringe hasta cerca de la cola
-    const linea = this._centerline(cuerpo, 64);
-    this._linea = linea; // también ubica la vulva (puesta de huevos)
-    if (linea) {
+    if (linea && !organos.intestino) {
       const head = bb.min.x, tail = bb.max.x, L = tail - head;
       const x0 = faringe ? faringe.boundingBox.max.x + 0.02 * L : head + 0.2 * L;
       const x1 = head + 0.9 * L;
@@ -520,37 +555,108 @@ export class WormScene {
   }
 
   // ------------------------------------------------------------------ nado
-  /** Onda que viaja de la cabeza a la cola (más amplia hacia la cola), como al nadar. */
-  _setSwimFrame(head, tail) {
-    const L = Math.max(1e-3, tail - head);
-    this.swimU.uSwimX0.value = head;
-    this.swimU.uSwimL.value = L;
-    this.swimU.uSwimK.value = (2 * Math.PI) / (1.05 * L);
+  /** Tabla de la cinemática (CPU) y su textura (GPU); empieza como identidad (C = C₀, sin giro). */
+  _nuevaCurva() {
+    const N = CURVA_N, f = () => new Float32Array(N);
+    const K = { x0: 0, x1: 1, L: 1, c0x: f(), c0y: f(), cx: f(), cy: f(), cos: f().fill(1), sin: f(), s: f(),
+      ds: new Float32Array(N - 1), phi0: new Float32Array(N - 1), smid: new Float32Array(N - 1),
+      ang: f(), datos: new Float32Array(N * 2 * 4), identidad: true };
+    K.tex = new THREE.DataTexture(K.datos, N, 2, THREE.RGBAFormat, THREE.FloatType);
+    this._subirCurva(K);
+    return K;
+  }
+
+  /** Reposo: la línea media del cuerpo (plano XY) muestreada a lo largo de x, con su largo y sus ángulos. */
+  _initCurva(linea, x0, x1) {
+    const K = this._curva, N = CURVA_N;
+    K.x0 = x0; K.x1 = Math.max(x0 + 1e-3, x1);
+    for (let i = 0; i < N; i++) {
+      const x = K.x0 + ((K.x1 - K.x0) * i) / (N - 1);
+      K.c0x[i] = x;
+      K.c0y[i] = linea ? linea(x)[0] : 0;
+    }
+    let L = 0;
+    for (let j = 0; j < N - 1; j++) {
+      const dx = K.c0x[j + 1] - K.c0x[j], dy = K.c0y[j + 1] - K.c0y[j];
+      K.ds[j] = Math.hypot(dx, dy);
+      K.phi0[j] = Math.atan2(dy, dx);
+      K.s[j] = L;
+      L += K.ds[j];
+    }
+    K.s[N - 1] = L;
+    K.L = L;
+    for (let i = 0; i < N; i++) K.s[i] /= L;
+    for (let j = 0; j < N - 1; j++) K.smid[j] = (K.s[j] + K.s[j + 1]) / 2;
+    this.swimU.uCurvaX.value.set(K.x0, K.x1);
+    this._integrarCurva(null);
+  }
+
+  /** Posición a lo largo del cuerpo (0 cabeza, 1 cola) de un punto de la escena, según su x. */
+  _sDeX(x) {
+    const K = this._curva, u = Math.min(1, Math.max(0, (x - K.x0) / (K.x1 - K.x0))) * (CURVA_N - 1);
+    const i = Math.min(Math.floor(u), CURVA_N - 2), f = u - i;
+    return K.s[i] + (K.s[i + 1] - K.s[i]) * f;
+  }
+
+  /**
+   * Integra la línea media a partir de la curvatura de cada tramo (`kappa(s)`, en rad por largo del cuerpo;
+   * null = reposo). Anclada a mitad del cuerpo: el gusano no se desplaza ni gira al moverse.
+   */
+  _integrarCurva(kappa) {
+    const K = this._curva, N = CURVA_N, m = N >> 1;
+    if (!kappa) {
+      if (K.identidad) return;
+      K.cx.set(K.c0x); K.cy.set(K.c0y); K.cos.fill(1); K.sin.fill(0); K.ang.fill(0);
+      K.identidad = true;
+      this._subirCurva(K);
+      return;
+    }
+    const ang = K.ang;
+    ang[m] = 0;
+    for (let i = m + 1; i < N; i++) ang[i] = ang[i - 1] + kappa(K.smid[i - 1]) * (K.ds[i - 1] / K.L);
+    for (let i = m - 1; i >= 0; i--) ang[i] = ang[i + 1] - kappa(K.smid[i]) * (K.ds[i] / K.L);
+    K.cx[m] = K.c0x[m]; K.cy[m] = K.c0y[m];
+    for (let i = m + 1; i < N; i++) {
+      const a = K.phi0[i - 1] + 0.5 * (ang[i - 1] + ang[i]);
+      K.cx[i] = K.cx[i - 1] + K.ds[i - 1] * Math.cos(a);
+      K.cy[i] = K.cy[i - 1] + K.ds[i - 1] * Math.sin(a);
+    }
+    for (let i = m - 1; i >= 0; i--) {
+      const a = K.phi0[i] + 0.5 * (ang[i] + ang[i + 1]);
+      K.cx[i] = K.cx[i + 1] - K.ds[i] * Math.cos(a);
+      K.cy[i] = K.cy[i + 1] - K.ds[i] * Math.sin(a);
+    }
+    for (let i = 0; i < N; i++) { K.cos[i] = Math.cos(ang[i]); K.sin[i] = Math.sin(ang[i]); }
+    K.identidad = false;
+    this._subirCurva(K);
+  }
+
+  _subirCurva(K) {
+    const N = CURVA_N, d = K.datos;
+    for (let i = 0; i < N; i++) {
+      d.set([K.cx[i], K.cy[i], K.c0x[i], K.c0y[i]], i * 4);
+      d.set([K.cos[i], K.sin[i], 0, 0], (N + i) * 4);
+    }
+    K.tex.needsUpdate = true;
   }
 
   /** main.js la apaga durante la medición (las neuronas quedan en su lugar real) y la vuelve a encender. */
   setSwim(on) { this.swim.target = on && this.swim.enabled ? 1 : 0; this.requestRender(); }
   setSwimEnabled(v) { this.swim.enabled = v && !this.reducedMotion; this.setSwim(v); }
 
-  /** Deforma p (escena) igual que wormDeform del shader: para picking y etiquetas. Modifica p y lo devuelve. */
+  /** Deforma p (escena) igual que wormDeform del shader: para picking, etiquetas y cámara. Modifica p y lo devuelve. */
   deform(p) {
-    const U = this.swimU, X0 = U.uSwimX0.value, L = U.uSwimL.value, F = U.uFlex.value, Rl = U.uRelaja.value;
-    const s = Math.min(1, Math.max(0, (p.x - X0) / L));
-    const g = (s - Rl.x) / Rl.z;
-    const amp = U.uSwimAmp.value * (0.3 + 0.7 * s) * (1 - Rl.y * Math.exp(-g * g));
-    let y = p.y + amp * Math.sin(U.uSwimK.value * (p.x - X0) - U.uSwimFase.value);
-    const h = Math.max(0, 1 - s / 0.22);
-    y += U.uCabeza.value * h * h * Math.sin(U.uSwimT.value * 5);
-    const f = (s - F.x) / F.z;
-    y += F.y * Math.exp(-f * f);
-    const b = U.uBend.value;
-    if (Math.abs(b) > 1e-4) {
-      const xm = X0 + 0.5 * L, R = L / b, th = (b * (p.x - xm)) / L, r = R - y;
-      p.x = xm + r * Math.sin(th);
-      p.y = R - r * Math.cos(th);
-    } else {
-      p.y = y;
-    }
+    const K = this._curva;
+    if (K.identidad) return p;
+    const u = Math.min(1, Math.max(0, (p.x - K.x0) / (K.x1 - K.x0))) * (CURVA_N - 1);
+    const i = Math.min(Math.floor(u), CURVA_N - 2), f = u - i;
+    const L = (A) => A[i] + (A[i + 1] - A[i]) * f;
+    let rc = L(K.cos), rs = L(K.sin);
+    const n = Math.hypot(rc, rs) || 1;
+    rc /= n; rs /= n;
+    const ox = p.x - L(K.c0x), oy = p.y - L(K.c0y);
+    p.x = L(K.cx) + rc * ox - rs * oy;
+    p.y = L(K.cy) + rs * ox + rc * oy;
     return p;
   }
 
@@ -573,7 +679,7 @@ export class WormScene {
     S.level += Math.sign(objetivo - S.level) * Math.min(Math.abs(objetivo - S.level), dt / S.rampa);
     const e = S.level * S.level * (3 - 2 * S.level);
     U.uSwimT.value += dt;
-    U.uSwimFase.value += M.dir * M.freq * SWIM_W * dt * e;
+    this._fase += M.dir * M.freq * SWIM_W * dt * e;
     if (this._driveT > 0 && S.level > 0) {
       this._driveT -= dt;
       if (this._driveT <= 0) Object.assign(T, { dir: 1, freq: 1 }); // vuelve al avance, lo normal del gusano
@@ -584,11 +690,16 @@ export class WormScene {
 
   _writeMotion(e) {
     const U = this.swimU, M = this.motion;
-    U.uSwimAmp.value = SWIM_AMP * e * M.amp;
-    U.uCabeza.value = M.cabeza;
-    U.uFlex.value.y = M.flex;
-    U.uRelaja.value.y = M.relaja;
-    U.uBend.value = M.bend;
+    const aw = KAPPA_NADO * e * M.amp, t = U.uSwimT.value, fase = this._fase;
+    const fs = this._flexS, fw = this._flexW, rs = this._relajaS;
+    if (aw === 0 && M.cabeza === 0 && M.flex === 0 && M.bend === 0) this._integrarCurva(null);
+    else this._integrarCurva((s) => {
+      let k = aw * Math.sin((2 * Math.PI * s) / LAMBDA - fase);
+      if (M.relaja) { const g = (s - rs) / 0.12; k *= 1 - M.relaja * Math.exp(-g * g); }
+      if (M.cabeza) { const h = Math.max(0, 1 - s / 0.22); k += M.cabeza * K_CABEZA * h * h * Math.sin(t * 5); }
+      if (M.flex) { const g = (s - fs) / fw; k += M.flex * K_FLEX * Math.exp(-g * g); }
+      return k + M.bend; // el giro omega: curvatura uniforme (total M.bend rad a lo largo del cuerpo)
+    });
     U.uBrillo.value = M.brillo;
     // bombeo de la faringe: ~4 por segundo (el gusano real llega a ~250 por minuto)
     this._pumpU.value = 0.035 * M.bombeo * (0.5 + 0.5 * Math.sin(2 * Math.PI * 4 * U.uSwimT.value));
@@ -612,8 +723,8 @@ export class WormScene {
   actuar(ev, indice = -1, { dur = 1.6 } = {}) {
     this._endActuar();
     if (!ev || !this.puedeActuar) return Promise.resolve();
-    const U = this.swimU, T = this.motionT;
-    const s = indice >= 0 ? Math.min(1, Math.max(0, (this.positions[indice].x - U.uSwimX0.value) / U.uSwimL.value)) : 0.5;
+    const T = this.motionT;
+    const s = indice >= 0 ? this._sDeX(this.positions[indice].x) : 0.5;
     const atras = ev.d < -0.25;
     Object.assign(T, MOTION_REPOSO, { dir: atras ? -1 : 1, amp: 0 });
     const omega = { amp: 0.35, freq: 1, bend: -1.6 * Math.PI };
@@ -624,10 +735,10 @@ export class WormScene {
       case "escape": Object.assign(T, { dir: -1, freq: 1.8, amp: 3 }); dur *= 1.6; break;
       case "omega": Object.assign(T, omega, { bend: Math.sign(ev.lado || -1) * 1.6 * Math.PI }); dur *= 1.25; break;
       case "cabeza": T.cabeza = 0.8; break;
-      case "flexion": T.flex = 0.8 * (ev.lado || 1); U.uFlex.value.set(s, 0, 0.09); break;
-      case "relajar": Object.assign(T, { amp: 2, relaja: 1 }); U.uRelaja.value.set(s, 0, 0.12); break;
+      case "flexion": T.flex = 0.8 * (ev.lado || 1); this._flexS = s; this._flexW = 0.09; break;
+      case "relajar": Object.assign(T, { amp: 2, relaja: 1 }); this._relajaS = s; break;
       case "bombeo": T.bombeo = 1; break;
-      case "puesta": T.flex = -0.25; U.uFlex.value.set(0.5, 0, 0.05); this._ponerHuevo(); break;
+      case "puesta": T.flex = -0.25; this._flexS = this._sDeX(this.vulva().x); this._flexW = 0.05; this._ponerHuevo(); break;
       case "quietud": T.brillo = 0.55; break;
       default: break;
     }
@@ -682,13 +793,15 @@ export class WormScene {
 
   /** Centro del lazo del giro omega (la curva ventral de actuar), para encuadrarlo entero. */
   centroOmega() {
-    const U = this.swimU;
-    return new THREE.Vector3(U.uSwimX0.value + 0.5 * U.uSwimL.value, -U.uSwimL.value / (1.6 * Math.PI), 0);
+    // curvatura uniforme −1.6π a lo largo de L: círculo de radio L/1.6π, del lado ventral de la mitad del cuerpo
+    const K = this._curva, m = CURVA_N >> 1, R = K.L / (1.6 * Math.PI), a = K.phi0[m];
+    return new THREE.Vector3(K.c0x[m] + R * Math.sin(a), K.c0y[m] - R * Math.cos(a), 0);
   }
 
   /** La vulva: cara ventral del cuerpo, a mitad del largo (en reposo). */
   vulva() {
-    const U = this.swimU, x = U.uSwimX0.value + 0.5 * U.uSwimL.value;
+    if (this._vulvaDatos && this.center) return this.dataToScene(...this._vulvaDatos);
+    const K = this._curva, x = (K.x0 + K.x1) / 2;
     let cy = 0, cz = 0, r = 0.8;
     if (this._linea) [cy, cz, r] = this._linea(x);
     else if (this.bodyBox) { cy = (this.bodyBox.min.y + this.bodyBox.max.y) / 2; r = (this.bodyBox.max.y - this.bodyBox.min.y) / 2; }
