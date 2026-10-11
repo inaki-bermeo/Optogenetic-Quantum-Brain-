@@ -363,7 +363,10 @@ async function fire(thetaCarga = null) {
       }
       centro = r.spike;
       if (ev && !REDUCED && !ui.inspector && !cascade.stop) await actuar(ev, r.spike_indice);
-      else if (!REDUCED) await sleep(r.salto ? 350 : 150);
+      else {
+        if (ev) scene.acercarComida(ev.entrada.empuje); // sin animación, la comida igual se acerca o se aleja
+        if (!REDUCED) await sleep(r.salto ? 350 : 150);
+      }
       motor.decaer();
     }
   } catch (e) {
@@ -451,7 +454,7 @@ const ACERCAR = new Set(["cabeza", "flexion", "relajar", "bombeo", "puesta", "om
 
 /** El gusano actúa la conducta (con su sonido y, si es local, un acercamiento de cámara). */
 async function actuar(ev, indice) {
-  if (!scene.puedeActuar) return;
+  if (!scene.puedeActuar) { scene.acercarComida(ev.entrada.empuje); return; }
   sound.conducta(ev.programa);
   if (!ACERCAR.has(ev.programa) || scene.arrastrando || indice == null) { await scene.actuar(ev, indice); return; }
   const vista = scene.guardarVista();
@@ -970,6 +973,12 @@ function bindUI() {
     return false;
   });
   scene.on("pick", (i) => selectSource(state.neurons[i].name));
+  // el gusano alcanzó la bacteria comida: traga (la faringe bombea), suena y cuenta
+  scene.on("comer", () => {
+    sound.comer();
+    juego.comer();
+    announce("The worm reached a bacterium and swallowed it. Another one appears ahead.");
+  });
   const tip = $("tooltip");
   let tipIndex = -1;
   scene.on("hover", (i, px) => {

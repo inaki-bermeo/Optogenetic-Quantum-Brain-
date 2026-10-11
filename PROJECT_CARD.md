@@ -219,14 +219,17 @@ The window is the neuron that fired plus its 9 neighbours with the most synapses
 | HSN, VC | egg laying | Desai 1988; Schafer 2005 |
 | RIS | sleep-like stop | Turek 2013, 2016 |
 | AIB, AIY, AIZ | tendencies: reverse, keep going, turn | Gray 2005; Gordus 2015; Li 2014 |
+| AWA, AWC, ASE (smell and taste) | turns towards the food and crawls closer | Bargmann & Horvitz 1991; Bargmann, Hartwieg & Horvitz 1993 |
 
 **How it plays.** A single forward/backward drive adds each neuron's push and fades between steps, so AVA and AVB cancel each other like the real circuits that inhibit each other. The body wave runs tail → head when the worm backs up, as in real reversals. Every motion is a curvature profile along the body, which is what muscles produce: the body keeps its length and its organs bend with it.
+
+**Food.** *C. elegans* eats bacteria. Neon rods drift around the worm (green like GFP-labelled *E. coli* under the microscope, not to scale), and one of them is food. The worm stays anchored, so when it moves the world moves instead: crawling or a forward neuron brings the food closer and the bacteria flow past; a backward neuron pushes it away. When the cascade measures a smell or taste neuron (AWA, AWC, ASE), the food glows and the head turns towards it. When the food reaches the mouth, the pharynx pumps and the worm swallows it (achievement *First meal*), and a new one appears ahead.
 
 **What is simplified.**
 - Real *C. elegans* neurons are classical, and most do not even spike (AWA is an exception).
 - Behaviour comes from whole circuits, so one neuron is a simplification.
 - Local motor bends are placed where the cell body sits.
-- 172 of the 302 neurons have no known direct effect on movement, so they leave the worm still, on purpose.
+- 166 of the 302 neurons have no known direct effect on movement, so they leave the worm still, on purpose.
 
 Full table and references: [docs/behaviour.md](https://github.com/inaki-bermeo/Optogenetic-Quantum-Brain-/blob/main/docs/behaviour.md).
 
@@ -306,6 +309,7 @@ It also walks through the real steps needed to take the physics to hardware: Tro
   - the two-panel interface with the gate-by-gate circuit view;
   - the microscope-style worm, live sound and music;
   - the worm acting out the behaviour of each measured neuron;
+  - the neon bacteria and the food the worm smells, chases and eats;
   - accessibility.
 - **Data:**
   - connectome from Cook et al., *Nature* 571, 63 (2019), via OpenWorm c302;

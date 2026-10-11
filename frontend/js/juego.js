@@ -24,6 +24,8 @@ const LOGROS = {
   escape: { t: "Escape artist", d: "ASH sensed danger: the worm backed up, then made an omega turn to head away." },
   huevo: { t: "First egg", d: "An egg-laying neuron (HSN or VC) fired, and the vulva pushed out an egg." },
   tira: { t: "Tug of war", d: "Forward and backward command neurons both fired: their commands cancel, like the real circuits." },
+  olfato: { t: "Follow your nose", d: "A chemosensory neuron (AWA, AWC or ASE) fired: the worm smelled the bacteria and turned towards them." },
+  comida: { t: "First meal", d: "C. elegans eats bacteria: the pharynx pumps them in and the grinder crushes them." },
 };
 
 export class Juego {
@@ -79,8 +81,15 @@ export class Juego {
     if (/^(ALM[LR]|AVM|PLM[LR])$/.test(ev.nombre)) this._logro("reflejo");
     if (ev.programa === "escape") this._logro("escape");
     if (ev.programa === "puesta") this._logro("huevo");
+    if (ev.programa === "olfato") this._logro("olfato");
     if (ev.entrada.clase === "command interneuron") this.mandos.add(Math.sign(ev.entrada.empuje));
     if (this.mandos.size === 2) this._logro("tira");
+  }
+
+  /** El gusano alcanzó una bacteria y se la comió. */
+  comer() {
+    this.comidas = (this.comidas ?? 0) + 1;
+    this._logro("comida");
   }
 
   stats() {

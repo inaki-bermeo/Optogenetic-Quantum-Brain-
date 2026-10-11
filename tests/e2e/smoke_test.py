@@ -40,6 +40,9 @@ def entrar(pag, completa=False, out=None):
             pag.wait_for_timeout(1500)
             if out:
                 pag.screenshot(path=str(out / f"0_escena{k + 1}.png"), **SHOT)
+            # la superposición pasa sola tras 8 s: si ya avanzó (navegador lento), no se salta la escena siguiente
+            if pag.evaluate("document.getElementById('brief-num').textContent") != f"0{k + 1}":
+                continue
             assert pag.evaluate("document.activeElement.id") == "intro-next"
             pag.keyboard.press("Enter")
     else:
@@ -56,7 +59,8 @@ def esperar_fin_cascada(pag, timeout=400000):
 
 ESPERADO = {"AVAL": "reversa", "AVBR": "avance", "AVM": "reversa", "PLML": "avance", "RIVL": "omega",
             "VA5": "flexion", "DB3": "flexion", "DD2": "relajar", "MCL": "bombeo", "HSNL": "puesta",
-            "RIS": "quietud", "ASHL": "escape", "ASIL": None, "ASJL": None, "ASKL": None, "I2L": None}
+            "RIS": "quietud", "ASHL": "escape", "ASIL": None, "ASJL": None, "ASKL": None, "I2L": None,
+            "AWAL": "olfato", "AWCR": "olfato", "ASER": "olfato", "AWBL": None}
 
 
 def cascada_corta(pag, fuente, pasos="3"):

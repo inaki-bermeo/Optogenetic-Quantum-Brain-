@@ -84,9 +84,10 @@ The module instances are `scene` (WormScene), `sound` (Sonido), `juego` (Juego) 
 | Neurons | `setActivity(values)` (0..1 per neuron), `setHighlight(indices)` (rings), `setTrail(indices)`, `setLabel(index, text)` (lock-on reticle), `setEdgesVisible(v)` |
 | Effects | `fireLaser(index, intensity)`, `collapse(ventana, probs, spikeIdx, {superposition, collapse})` → Promise, `collapseNow()`, `cancelCollapse()` |
 | Behaviour | `actuar(ev, index)` → Promise (resolves when the return to rest starts), `puedeActuar`, `setDrive(d)`, `centroOmega()`, `vulva()` |
+| Food | `acercarComida(empuje)` (a forward push brings the food bacterium closer, a backward one moves it away; `actuar` calls it, and `main.js` calls it directly when nothing is animated), `comida` (state: distance to the mouth, smell glow, eating). The decorative bacteria are one `InstancedMesh` animated in its own shader (tumbling, Brownian drift, flow along x as the worm "moves"); they do not use `wormDeform` |
 | Swim | `setSwim(on)`, `setSwimEnabled(v)`, `deform(p)` (JS copy of the shader deformation) |
 | Camera | `flyTo(index, {dur, dist})`, `flyToPoint(p, …)`, `flyHome()`, `guardarVista()` / `volverVista(v)`, `resetView()`, `setCinematic(on)`, `setAutoRotate(v)`, `arrastrando` |
-| Events | `on("pick" \| "hover" \| "key" \| "quality", fn)` |
+| Events | `on("pick" \| "hover" \| "key" \| "quality" \| "comer", fn)`; `comer` fires when the worm swallows the food |
 
 **Render loop states.**
 - *Paused:* `setPaused(true)`, or the canvas is off-screen (IntersectionObserver), or the tab is hidden. There is no animation loop, and in-flight collapse, behaviour and laser promises resolve at once so the cascade never hangs.

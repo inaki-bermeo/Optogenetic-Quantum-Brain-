@@ -26,9 +26,14 @@ const REF = {
   turek: "Turek et al. 2013, 2016",
   gordus: "Gordus et al. 2015",
   li: "Li et al. 2014",
+  bargmann91: "Bargmann & Horvitz 1991",
+  bargmann93: "Bargmann, Hartwieg & Horvitz 1993",
 };
 
-/** Programas: reversa, avance, escape (reversa + giro omega), omega, cabeza, flexion, relajar, bombeo, puesta, quietud, tendencia. */
+/**
+ * Programas: reversa, avance, escape (reversa + giro omega), omega, cabeza, flexion, relajar, bombeo, puesta, quietud,
+ * tendencia, olfato (la cabeza gira hacia la comida y avanza hacia ella: quimiotaxis).
+ */
 const CONDUCTAS = [
   { patron: /^AV[ADE][LR]$/, programa: "reversa", clase: "command interneuron", empuje: -0.8,
     texto: "backward (reversal)", ref: [REF.chalfie, REF.zheng] },
@@ -64,6 +69,9 @@ const CONDUCTAS = [
     texto: "tendency to keep going forward", ref: [REF.gray, REF.li] },
   { patron: /^AIZ[LR]$/, programa: "cabeza", clase: "navigation interneuron", empuje: 0,
     texto: "tendency to turn", ref: [REF.gray] },
+  // quimiotaxis: AWA y AWC huelen odorantes que sueltan las bacterias; ASE detecta sales y otros solubles
+  { patron: /^(AWA|AWC|ASE)[LR]$/, programa: "olfato", clase: "chemosensory neuron", empuje: 0.4,
+    texto: "smells food: turns towards it and crawls closer", ref: [REF.bargmann91, REF.bargmann93] },
 ];
 
 export function conductaDe(nombre) {

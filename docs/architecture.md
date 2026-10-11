@@ -35,8 +35,8 @@ frontend/
   js/juego.js       game layer: Carga (hold to charge θ), Juego (stats, achievements that each explain one physics fact)
   js/conducta.js    neuron class → behaviour table (with references) and the forward/backward Motor drive
   js/escena.js      WormScene: three.js scene, organ meshes, curvature kinematics (swim + behaviour motions), neurons
-                    (InstancedMesh), synapses (LineSegments), laser, collapse animation, camera flights, picking,
-                    render-on-demand loop
+                    (InstancedMesh), synapses (LineSegments), neon bacteria and the food bacterium, laser, collapse
+                    animation, camera flights, picking, render-on-demand loop
   js/graficos.js    groupedBars + dataTable (accessible SVG bar chart with its data table), esc()
   js/python.js      the Pyodide bridge (py.conectoma, py.paso, py.circuito, py.figuras, ...)
   js/sonido.js      Sonido: laser chirp, superposition tones, collapse, per-neuron pentatonic note, ambient music,
@@ -136,7 +136,7 @@ If the measured neuron has a known behaviour (`js/conducta.js`), the next step w
 - **No shader recompiles.**
   - The laser, collapse, trail and egg effects are built once and reused. Each effect is a group toggled as a whole, and the collapse halos grow on demand.
   - Their shaders compile up front with `renderer.compileAsync`, so a cascade compiles nothing new.
-- **One draw call each** for the 302 neurons (`InstancedMesh`) and the synapses (`LineSegments`).
+- **One draw call each** for the 302 neurons (`InstancedMesh`), the synapses (`LineSegments`) and the 240 decorative bacteria (`InstancedMesh`, moved entirely in the vertex shader from the swim clock, so they freeze with everything else at rest).
   - Colours come from a precomputed lookup table.
   - Collapse frames repaint only the 10 window neurons and their synapses (`_pintar`).
   - The swim and the behaviour motions run in the vertex shader (`wormDeform`), reading one 64×2 curvature texture that JS updates only on frames where something moves; `WormScene.deform()` reads the same table for picking, labels and camera flights.

@@ -358,7 +358,26 @@ export class Sonido {
       case "bombeo": for (let i = 0; i < 6; i++) golpe(i * 0.25, 1100, 0.05, 0.04); break;
       case "puesta": golpe(0.45, 700, 0.12, 0.1); golpe(0.5, 1400, 0.05, 0.06); break;
       case "quietud": glide(220, 110, 1.3, 0.07); break;
+      case "olfato": glide(500, 820, 0.18, 0.05); glide(560, 900, 0.18, 0.05, "sine", 0.22); break; // dos "olfateos"
       default: golpe(0, 190, 0.12); // flexión, cabeza, relajación
+    }
+  }
+
+  /** El gusano se traga una bacteria: un "plop" grave y la faringe bombeando (clics rápidos). */
+  comer() {
+    if (!this.listo) return;
+    const ctx = this.ctx, t0 = ctx.currentTime + 0.02;
+    const o = this._osc("sine", 320, t0);
+    o.frequency.exponentialRampToValueAtTime(90, t0 + 0.16);
+    const g = this._env(t0, 0.22, 0.006, 0.06, t0 + 0.3);
+    o.connect(g).connect(this.master);
+    o.start(t0); o.stop(t0 + 0.32);
+    for (let i = 0; i < 6; i++) {
+      const t = t0 + 0.25 + i * 0.22;
+      const c = this._osc("sine", 1200 - i * 40, t);
+      const gc = this._env(t, 0.045, 0.003, 0.012, t + 0.06);
+      c.connect(gc).connect(this.master);
+      c.start(t); c.stop(t + 0.07);
     }
   }
 
