@@ -1,6 +1,6 @@
 **License:** [MIT](https://opensource.org/license/MIT) · **Powered by:** [Qiskit](https://www.ibm.com/quantum/qiskit) · **Hardware:** [IonQ](https://ionq.com/)
 
-**Supported by Qollab & IonQ**
+**This effort is supported by Qollab & IonQ.**
 
 **Repository:** [https://github.com/inaki-bermeo/Optogenetic-Quantum-Brain-](https://github.com/inaki-bermeo/Optogenetic-Quantum-Brain-)  
 **Full theory (Spanish):** [docs/theory.md](https://github.com/inaki-bermeo/Optogenetic-Quantum-Brain-/blob/main/docs/theory.md)
@@ -15,21 +15,37 @@
 * **Herbert Díaz** – Quantum Simulation & Scientific Logic
 * **Julian Stiefkens** – Physics Engine & Connectome Data
 * **Iñaki Bermeo** – UX/UI, 3D Visualization & Audio Engine
+
 ---
 
 ## Summary & Core Concept
 
 Optogenetics is a technique that makes living neurons sensitive to light by giving them light-gated proteins, so researchers can switch individual cells on or off with a pulse of light and study how the activity spreads. Inspired by the 2026 Nobel Prize in Medicine, awarded to Georg Nagel, Peter Hegemann and Karl Deisseroth, this project brings that idea into quantum computing.
 
-We take the real connectome of *C. elegans* consisting on 302 neurons and fire a "quantum laser" at any neuron. The laser is an `RX(θ)` gate, and the excitation spreads to the neuron's neighbours as a quantum walk. Each step of the spike is decided by a 10-qubit quantum circuit written in Qiskit: the neuron that fired and its 9 most connected neighbours, one qubit each. A measurement then collapses the circuit onto a single neuron, which fires the next step. The result is a model of how a spike could travel through a real neural network, with every step run on a quantum backend.
+We take the real connectome of *C. elegans*, made of 302 neurons, and fire a "quantum laser" at any neuron. The laser is an `RX(θ)` gate, and the excitation spreads to the neuron's neighbours as a quantum walk. Each step of the spike is decided by a 10-qubit quantum circuit written in Qiskit: the neuron that fired and its 9 most connected neighbours, one qubit each. A measurement then collapses the circuit onto a single neuron, which fires the next step. The result is a model of how a spike could travel through a real neural network, with every step run on a quantum backend.
 
-| Concept | At the *C. elegans* | In our model | In the Qiskit circuit |
+| Concept | In *C. elegans* | In our model | In the Qiskit circuit |
 | :--- | :--- | :--- | :--- |
 | **Neuron** | One of the 302 identified neuron cells | A neuron is *active* when it holds the excitation | One qubit: $\vert{}0\rangle$ = at rest, $\vert{}1\rangle$ = active. A circuit has 10 qubits: the neuron that fired and its 9 most connected neighbours |
 | **Light pulse** | A light dose opens the light-gated channels, so the neuron is more or less likely to fire | You hold the fire button to charge the dose $\theta$. The chance that the neuron fires is $\sin^2(\theta/2)$ | An $R_X(\theta)$ gate on the target qubit: $\cos(\theta/2)\vert{}0\rangle - i\sin(\theta/2)\vert{}1\rangle$ |
 | **Wiring** | Synapses seen under the electron microscope (Cook et al., 2019) | Two neurons are connected if they share at least one synapse; every connection weighs the same | The coupling matrix $J$, normalised so its largest eigenvalue is 1 |
 | **Spreading of the signal** | The activity travels from neuron to neuron through the synapses | The excitation is never created or destroyed: it hops between connected neurons as a wave, and the paths add up or cancel (interference) | Evolution under the XY Hamiltonian for a time $\tau$, built as `PauliEvolutionGate` with a Suzuki–Trotter decomposition into $R_{XX}$ and $R_{YY}$ gates |
 | **Reading the result** | Calcium imaging shows which neurons are active, without disturbing them | The measurement picks one neuron: the one that spikes and starts the next step. Measuring too often freezes the spike (quantum Zeno effect) | Z-basis measurement of the 10 qubits; the qubit read as $1$ is the spike. Shots with more than one $1$ are errors and are discarded (post-selection) |
+
+---
+
+## Features
+
+* **The real worm brain.** All 302 neurons of *C. elegans* at their real 3D positions, wired with the synapses traced by electron microscopy (Cook et al., 2019).
+* **A quantum laser.** An $R_X(\theta)$ gate on the neuron you pick. Hold to charge the dose, or set it with the mouse; the meter shows the fire chance $\sin^2(\theta/2)$.
+* **A spike cascade of real circuits.** Every jump is a 10-qubit Qiskit circuit (`PauliEvolutionGate` + `SuzukiTrotter`), sent as one job to the backend you chose on **Run**: the built-in simulator, IonQ Forte 1's simulator or the IonQ QPU.
+* **Error mitigation you can see.** Symmetry post-selection discards shots with two or more neurons at 1, and each step shows the share of valid shots.
+* **Theory vs. measurement.** Every step compares the exact walk with the counts returned by the backend, with a data table behind every chart.
+* **Circuit inspector (C).** The exact circuit of any step, gate by gate (compact or with every $R_{XX}$ and $R_{YY}$), plus Qiskit's own `draw("mpl")` and `plot_histogram`.
+* **A worm that acts.** An anatomical 3D worm (pharynx, intestine, gonad, eggs) acts out the real behaviour of each neuron that fires: 136 of the 302 neurons, each with references. It also smells, approaches and eats a food bacterium.
+* **Sound.** Each neuron has its own note, so every cascade plays its own melody, over an underwater ambience.
+* **A guided intro.** Optogenetics and the 2026 Nobel Prize, then the real circuit of the touch neuron AVM: light, superposition, collapse.
+* **Accessible.** Keyboard-only play, screen-reader announcements, data tables and `prefers-reduced-motion`.
 
 ---
 
@@ -40,10 +56,60 @@ The simulation functions as both an educational platform and a scientific sandbo
 * **The Mission Log (Left):** Narrates the spike chain as the cascade progresses. Each time a neuron fires, it describes what the real worm does when that class of neuron is switched on (based on lesion and optogenetic experiments).
 * **The Scanner (Right):** Summarizes the 10-qubit circuit of the current step: the laser $R_X(\theta)$ and the Trotterized evolution $e^{-i\tau H}$. It also shows the share of valid shots (those with at most one excitation) and compares the theoretical probabilities with the counts returned by the backend you chose. Press **C** to open the circuit inspector and see every $R_{XX}$ and $R_{YY}$ gate.
 * **The Control Deck (Bottom):** Sets the target neuron, the laser dose ($\theta$) and the time between measurements ($\tau$).
-* **Biological Environment:** The 3D worm moves according to the neurons that fire, while neon bacteria drift around it. One of them is food: when a smell or taste neuron (AWA, AWC, ASE) is measured, the food glows and the head turns towards it, and forward-motion neurons bring it closer.
+* **Biological Environment:** The 3D worm moves according to the neurons that fire, while neon bacteria float still around it. One of them is food: when a smell or taste neuron (AWA, AWC, ASE) is measured, the food glows and the head turns towards it. Forward-motion neurons move the worm closer to the food and backward ones move it away; during one laser shot these moves add up, and when the cascade ends the worm returns to where it started. A strong forward command (AVB, PVC) reaches the food and the worm eats it.
+
 ![](https://raw.githubusercontent.com/inaki-bermeo/Optogenetic-Quantum-Brain-/main/docs/card/panel1.jpg)
 
 ---
+
+## Architecture Overview
+
+There is no server: the whole app runs in the viewer's browser inside Qollab. The JavaScript front end draws the worm, the HUD and the sound. The physics is a Python package, `cerebro_q`, that runs in the same page through **Pyodide**: it builds every Qiskit circuit and sends it to the `backend` object that Qollab creates when you press **Run**.
+
+![Architecture: the JavaScript front end (main.js, escena.js, conducta.js, sonido.js) talks through the Pyodide bridge python.js to the Python core cerebro_q (api, datos, fisica, cascada, visual), which sends one job per cascade step to the backend chosen on Run: the built-in simulator, IonQ Forte 1's simulator or the IonQ QPU.](https://raw.githubusercontent.com/inaki-bermeo/Optogenetic-Quantum-Brain-/main/docs/card/architecture.png)
+
+| Part | Files | What it does |
+| :--- | :--- | :--- |
+| Page and HUD | `frontend/index.html`, `main.js`, `main.css` | The cascade loop, the HUD, the charts and the circuit inspector |
+| 3D scene | `frontend/js/escena.js` | three.js: the anatomical worm, 302 neurons (one draw call), synapses, laser, collapse, bacteria; the body bends with curvature kinematics in the vertex shader |
+| Behaviour | `frontend/js/conducta.js` | Neuron class → real behaviour, with references; a forward/backward motor drive |
+| Sound, intro, game | `frontend/js/sonido.js`, `intro.js`, `juego.js` | Web Audio synthesis, the guided intro, achievements |
+| Python bridge | `frontend/js/python.js` | Calls `cerebro_q.api` one at a time; quick calls go before slow matplotlib ones |
+| Python core | `backend/cerebro_q/` | `datos` (connectome, body), `fisica` ($J$, exact walk), `circuitos`, `cascada` (window, circuit, job, post-selection), `analisis`, `visual` (Qiskit figures) |
+| Data | `backend/data/` | `neurons.json`, `connectome_cook2019.csv`, `gusano.glb` |
+
+## Data Flow: one cascade step
+
+1. You pick a neuron and charge the laser; `main.js` calls `py.paso(backend, params)`.
+2. `cascada.py` takes the **window**: the neuron that fired and its 9 neighbours with the most synapses (10 qubits).
+3. It builds the circuit: $R_X(\theta)$ on qubit 0, then $e^{-i\tau H}$ as a `PauliEvolutionGate` with `SuzukiTrotter(order=2)` (1 slice for $\tau \le 4.5$, 2 for $\tau \le 9$, 3 above), then a measurement of all 10 qubits. Built and transpiled circuits are cached.
+4. `transpile(optimization_level=1)` for the chosen backend, then **one** `backend.run(circuit, shots)`.
+5. Post-selection keeps the shots with at most one 1; one valid shot is picked at random. The neuron at 1 is the **spike**. If no neuron fired, the cascade stops.
+6. The page plays the superposition and the collapse, compares theory with the measured counts, and the worm acts out the spike's behaviour.
+7. The spike becomes the centre of the next circuit, which starts fully excited ($\theta = \pi$). IonQ accepts one job per Run, so on IonQ the cascade runs a single step.
+
+## Python API (called from JavaScript)
+
+Every function returns JSON text, so the page only needs `JSON.parse`.
+
+| Function | Returns |
+| :--- | :--- |
+| `conectoma_json(max_aristas)` | The 302 neurons (name, position, type, neurotransmitters, degree) and the 1,200 connections with the most synapses, to draw |
+| `cuerpo_glb()` | The 3D body as base64 |
+| `backend_json(backend)` | Backend name, whether it is IonQ and whether it is real hardware |
+| `paso_json(backend, params)` | One cascade step: window, counts, measured vs. theory, valid and empty fractions, spike, gate counts before and after `transpile` |
+| `circuito_json(params)` | The step circuit without running it: compact and expanded gate lists and the ideal distribution, for the instant drawing |
+| `figuras_json(params)` | Qiskit's `draw("mpl")` and `plot_histogram` as SVG |
+| `precargar_figuras()` | Loads matplotlib in the background the first time the inspector opens |
+
+Example parameters of one step:
+
+```json
+{ "centro": "AVM", "theta": 3.1416, "tau": 8, "gamma": 1, "pasos_trotter": 2, "shots": 200 }
+```
+
+---
+
 ## Theoretical Framework & Mathematical Formulation
 
 The physical mapping from biology to quantum computing turns the connectivity graph of the neurons into a continuous-time quantum walk. It is built with Qiskit and runs on a simulator or on IonQ hardware.
@@ -165,25 +231,51 @@ $$
 \rho \;\longrightarrow\; \frac{\Pi_{\le 1}\,\rho\,\Pi_{\le 1}}{\text{Tr}\left(\Pi_{\le 1}\,\rho\right)}
 $$
 
-where $\Pi_{\le 1}$ projects onto the bitstrings with at most one 1. The page shows the share of valid shots of each step. In an earlier prototype that simulated Forte-like noise on a 6-neuron circuit.
+where $\Pi_{\le 1}$ projects onto the bitstrings with at most one 1. The page shows the share of valid shots of each step. In an earlier prototype that simulated Forte-like noise on a 6-neuron circuit, this step lowered the total variation distance (TVD) to the ideal distribution from 0.17 to 0.05.
+
+---
+
+## Results: the quantum Zeno effect
+
+In a short time $\tau$ the chance of leaving the centre grows like $(\gamma J \tau)^2$, so measuring very often keeps resetting the wave before it can move. Simulated cascades from AVM (200 cascades of 20 steps, the exact walk in each window) show it clearly. Reproduce them with `python tools/zeno_analysis.py`; a unit test checks these numbers.
+
+| $\tau$ (time between measurements) | Steps where the spike stays put | Different neurons visited in 20 steps (median) |
+| :---: | :---: | :---: |
+| 3 | 93 % | 2 |
+| 5 | 81 % | 5 |
+| 8 | 60 % | 8 |
+
+**Honest limit.** A window is cut off from the other ~290 neurons, so with a long $\tau$ each step is the walk on an isolated 10-neuron circuit rather than on the whole worm.
 
 ---
 
 ## Scientific Exploration & Educational Impact
 
 Hamiltonian simulation is theoretically profound but notoriously difficult to visualize. This project makes abstract quantum mechanics tangible:
+
 * **Interference:** Users can observe "dark regions" in the worm where quantum paths perfectly cancel each other out.
 * **The Quantum Zeno Effect:** By adjusting the measurement interval ($\tau$), the simulation demonstrates that measuring a quantum system too frequently effectively freezes its evolution, hindering the wave's propagation.
 * **Hardware Realities:** The tool exposes the real steps required to run physics on a QPU, including transpilation depth overhead and the necessity of algorithmic error mitigation.
+
 ---
 
 ## Running the Simulation
 
 1. **Select Backend:** Press **Run** and select a target. The built-in simulator executes immediately. On *IonQ Forte 1 (Remote Simulator)*, the system respects API quotas by running a single cascade step per execution.
-2. **Charge the Laser:** Select a source neuron on the 3D model, hold the fire button to adjust the laser dose ($\theta$), and release to view the exact state vector amplitudes.
+2. **Charge the Laser:** Select a source neuron on the 3D model, hold the fire button (or **Space**) to charge the laser dose ($\theta$), or click and drag the dose meter. Release to fire: the 10 neurons of the window glow in superposition, then the measurement collapses them onto one.
 3. **Analyze the Cascade:** Watch the measurement collapse in real-time. Compare $\tau = 8$ (free propagation) with $\tau = 2$ (Zeno effect restriction). 
 4. **Inspect the Circuits:** Press **C** to open the circuit inspector for a gate-by-gate breakdown of the exact circuit that ran, alongside the backend's measured counts.
+
 *(Note: The interface is fully keyboard-navigable, screen-reader compatible, provides raw data tables for every chart, and respects standard `prefers-reduced-motion` settings).*
+
+---
+
+## Testing and Development
+
+* **Unit tests** (`tests/backend/`, 24 tests): the one-excitation XY dynamics equals the exact walk; Trotter convergence; Qiskit's bit order; the step circuit against the theory; a step on a backend and a shot with no spike; the instant circuit view is the same circuit that runs; the Zeno table above; the Qiskit figures; and Qollab's rules for the upload (file limits, the shape of `index.html`, allowed imports, no API keys).
+* **Browser smoke test** (`tests/e2e/smoke_test.py`, Playwright): walks the intro by keyboard, fires a charged shot, opens the inspector, checks the IonQ one-job lock and the QPU confirmation, a reduced-motion run and a phone run with touch.
+* **Run it locally:** `python tools/dev_server.py` imitates Qollab at `http://127.0.0.1:8765` (`?backend=ionq` or `?backend=qpu` imitate IonQ). `python tools/build_qollab.py` builds the folder uploaded to Qollab and checks its limits (at most 100 files, 2 MB each). Details in [docs/development.md](https://github.com/inaki-bermeo/Optogenetic-Quantum-Brain-/blob/main/docs/development.md).
+* **Safety:** the real IonQ QPU only runs after a confirming second click, and no API key lives in the code.
 
 ---
 
@@ -200,5 +292,8 @@ While a single-excitation quantum walk can be simulated efficiently on classical
 * **Touch Reflex Circuit:** Chalfie et al. (1985).
 * **Optogenetics Application:** Nagel et al. (2005).
 * **Continuous-Time Quantum Walk:** Farhi & Gutmann, *Phys. Rev. A* 58, 915 (1998).
+* **Neuron → behaviour table:** lesion and optogenetics studies (Chalfie 1985, Gray 2005, Haspel 2010, Leifer 2011, Stirman 2011 and others), listed in [docs/behaviour.md](https://github.com/inaki-bermeo/Optogenetic-Quantum-Brain-/blob/main/docs/behaviour.md).
+
 **Technology Stack**
+
 * Qiskit, NumPy, SciPy, Matplotlib, Three.js, Web Audio API.
