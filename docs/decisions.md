@@ -14,7 +14,7 @@ The important decisions behind the project, with the reason for each and where i
 | **The next centre is one valid shot drawn at random**, not the most likely neuron | Faithful to measurement: every run differs (`semilla` makes it reproducible in tests) | `ejecutar_paso` |
 | **Symmetry post-selection**: shots with 2+ excitations are discarded | The XY Hamiltonian conserves the excitation number, so those shots are hardware errors | `analisis.contar_spikes` |
 | **Binary synapse weights** (connected or not) | Team decision. Counts are kept only to order a window's neighbours | `fisica.acoplamientos`, `datos.conteo_sinapsis` |
-| **Honest about quantum advantage**: with one laser the problem is classically simulable | Stated on the card and in theory.md; several lasers is where it gets hard | `PROJECT_CARD.md`, [theory.md](theory.md) |
+| **Honest about quantum advantage**: with one laser the problem is classically simulable | Stated on the card and in theory.md; several lasers is where it gets hard | `README.md`, [theory.md](theory.md) |
 | **One IonQ job per Run**: on IonQ the cascade runs one step, then locks. Hardware needs a confirming second click | Qollab's rule; hardware costs credits | `fire()`, `renderBackendInfo()` |
 
 ## Platform and repository

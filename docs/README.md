@@ -27,7 +27,7 @@ Optogenetic Quantum Brain is a single web page that runs inside **Qollab**. A "l
 | Features discussed but not built yet (IonQ replays, n lasers, …) | [proposals/](proposals/README.md) |
 | A common change (add an achievement, a Python function, a HUD control, a behaviour…) | [recipes.md](recipes.md) |
 | Why something is the way it is | [decisions.md](decisions.md) |
-| The public project page | [`PROJECT_CARD.md`](../PROJECT_CARD.md) and [`README.md`](../README.md), always kept in sync |
+| The public project page | [`README.md`](../README.md) |
 
 ## Non-negotiables
 

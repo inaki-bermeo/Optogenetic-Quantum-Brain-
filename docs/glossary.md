@@ -41,7 +41,7 @@ The code (comments, identifiers, JSON keys from Python) is in Spanish, and every
 | `nado`, `swim` | `escena.js` | The crawling wave (a curvature wave along the body) |
 | `curva`, `kappa`, `uCurva` | `escena.js` | Curvature kinematics: κ(s) along the body, the integrated midline table and its texture |
 | `actuar`, `conducta`, `programa` | `escena.js`, `js/conducta.js` | Act out a behaviour; the behaviour table entry; its motion program (`reversa`, `avance`, `omega`, …). See [behaviour.md](behaviour.md) |
-| `bacterias`, `comida`, `acercarComida`, `comer`, `olfato`, `giro`, `flujo` | `escena.js`, `conducta.js` | The neon bacteria; the food bacterium; bring it closer by a push; the swallow event; the chemotaxis behaviour (AWA, AWC, ASE); the head turn towards the food; the background flow that stands for the worm's own movement |
+| `bacterias`, `comida`, `acercarComida`, `estocada`, `uDesp`, `comer`, `olfato`, `giro` | `escena.js`, `conducta.js` | The neon bacteria; the food bacterium; move the worm towards it (or back) by a push; that move ("lunge"); the offset that moves the whole worm; the swallow event; the chemotaxis behaviour (AWA, AWC, ASE); the head turn towards the food |
 | `Motor`, `empuje`, `setDrive` | `conducta.js`, `escena.js` | Forward/backward drive that the command neurons accumulate during a cascade |
 | `colapso`, `collapse` | `escena.js` | The superposition → measurement animation of one step |
 | `barrido` | `main.js` | The one-shot scanline sweep that plays with each collapse |

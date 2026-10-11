@@ -45,7 +45,7 @@ The repo is the source of truth. Changes go **repo → Qollab**, never the other
 1. `.venv/bin/python tools/build_qollab.py`. This writes `dist/qollab/` (flat, about 20 files) and fails if Qollab's limits are exceeded.
 2. In the Qollab project (type **HTML/JS**), upload the contents of `dist/qollab/` keeping its folders (`js/`, `cerebro_q/`, `data/`).
 3. Press **Run** with **Built-in simulator** and check the page.
-4. Paste `PROJECT_CARD.md` into the project page.
+4. `README.md` is the project page: Qollab shows it as the write-up.
 
 Never upload `tools/`, `tests/`, `docs/` or `.venv/`.
 
@@ -68,5 +68,5 @@ The page has no `<meta name="viewport">` of its own, because Qollab pastes `inde
 
 - Comments and identifiers are in Spanish; user-facing text is in English.
 - Keep the backend free of anything the page doesn't call. Offline analysis goes in `tools/`, test-only references in `tests/`.
-- When app behavior changes, update `PROJECT_CARD.md` and `README.md` together, plus the matching doc in `docs/`.
+- When app behavior changes, update `README.md` (the project page), plus the matching doc in `docs/`.
 - Never commit `.venv/`, `__pycache__/`, `.ipynb_checkpoints/` or `dist/` (all in `.gitignore`).

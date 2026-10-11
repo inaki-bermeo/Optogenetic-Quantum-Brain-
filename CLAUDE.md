@@ -27,7 +27,7 @@ folder uploaded to Qollab. Code identifiers and comments are in Spanish; everyth
 - [docs/3d-model.md](docs/3d-model.md) (Spanish): coordinate frames of the body mesh.
 - [docs/worm-model.md](docs/worm-model.md): the anatomical Blender worm (organs, `tools/blender/modelo_gusano.py`) and
   the curvature kinematics that bends body and organs together.
-- [PROJECT_CARD.md](PROJECT_CARD.md) / [README.md](README.md): the public project page (keep both in sync).
+- [README.md](README.md): the public project page (Qollab shows it as the project write-up).
 - [RUNNING.md](RUNNING.md): the page only runs inside Qollab (or the local harness).
 
 ## Rules
@@ -40,5 +40,5 @@ folder uploaded to Qollab. Code identifiers and comments are in Spanish; everyth
   `tools/dev_server.py` (`FUNCIONES`) and `tools/qollab_shim/puente_api.js` (see docs/recipes.md).
 - The game layer never changes the physics; numbers on the card come from `tools/zeno_analysis.py` or tests.
 - Accessibility is required: keyboard paths, reduced motion, live regions, a table behind every chart, contrast ≥ 4.5:1.
-- When app behaviour changes, update `PROJECT_CARD.md` and `README.md` together, plus the matching doc above.
+- When app behaviour changes, update `README.md` (the project page), plus the matching doc above.
 - Run `python -m unittest discover -s tests/backend` and the e2e smoke test before opening a PR.
