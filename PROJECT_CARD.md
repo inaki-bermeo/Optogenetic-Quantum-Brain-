@@ -130,11 +130,10 @@ J = \frac{W}{\lambda_{\max}(W)}
 
 **2. The XY Hamiltonian and conservation of the excitation**
 
-Synaptic propagation is governed by an XY (hard-core boson) Hamiltonian:
+Synaptic propagation is governed by an XY Hamiltonian:
 
 ```math
 H = \gamma \sum_{i \lt j} J_{ij}\,\frac{X_i X_j + Y_i Y_j}{2}
-  = \gamma \sum_{i \lt j} J_{ij}\left( \sigma_i^+ \sigma_j^- + \sigma_i^- \sigma_j^+ \right)
 ```
 
 This Hamiltonian commutes with the total number operator, $[\hat{N}, H] = 0$, so the number of excitations never changes. The laser acts on one qubit, so the state contains at most one excitation and stays in the sectors with 0 and 1 excitations. In the one-excitation sector $H = \gamma J$, which is exactly the continuous-time quantum walk of Farhi and Gutmann (1998) on the connectome graph.
