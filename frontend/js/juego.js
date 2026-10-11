@@ -10,7 +10,7 @@ const TOQUE_MS = 280; // una pulsación más corta que esto es un "toque": dispa
 /** Probabilidad de que el láser haga disparar la neurona: sin²(θ/2). */
 export const probDisparo = (theta) => Math.sin(theta / 2) ** 2;
 
-export const LOGROS = {
+const LOGROS = {
   primera: { t: "First light", d: "Your laser applied RX(θ) to a real neuron's qubit." },
   salto: { t: "Quantum leap", d: "The measurement collapsed the wave onto another neuron: the spike jumped." },
   zeno: { t: "Zeno trap", d: "4 measurements in a row on the same neuron: measuring often freezes the walk." },
@@ -34,7 +34,7 @@ export class Juego {
     this.racha = 0;
     this.quieto = 0;
     this.mandos = new Set(); // sentidos de las neuronas de mando que dispararon en esta cascada
-    this.on = { logro: () => {}, stats: () => {} };
+    this.on = { logro: () => {} };
   }
 
   /** Empieza una cascada desde `fuente` (cuenta como descubierta sólo si dispara). */
@@ -42,17 +42,15 @@ export class Juego {
     this.racha = 0;
     this.quieto = 0;
     this.mandos.clear();
-    this._emitir("stats");
-    return this._logro("primera");
+    this._logro("primera");
   }
 
   /**
    * Registra un paso medido. `r` es el resultado de paso_json; `ctx` = {theta, ionq}.
-   * Devuelve los logros nuevos (también se emiten por on.logro).
+   * Los logros nuevos se avisan por on.logro.
    */
   paso(r, ctx = {}) {
-    const nuevos = [];
-    const add = (k) => { const l = this._logro(k); if (l) nuevos.push(l); };
+    const add = (k) => this._logro(k);
     if (r.spike) {
       if (r.k === 1) this.descubiertas.add(r.centro);
       this.descubiertas.add(r.spike);
@@ -74,21 +72,17 @@ export class Juego {
     }
     if (ctx.ionq) add("ionq");
     if (this.descubiertas.size >= 25) add("coleccion");
-    this._emitir("stats");
-    return nuevos;
   }
 
-  /** Registra la conducta que actuó el gusano (evento de Motor.aplicar). Devuelve los logros nuevos. */
+  /** Registra la conducta que actuó el gusano (evento de Motor.aplicar). */
   conducta(ev) {
-    const nuevos = [];
-    if (!ev) return nuevos;
-    const add = (k) => { const l = this._logro(k); if (l) nuevos.push(l); };
+    if (!ev) return;
+    const add = (k) => this._logro(k);
     if (/^(ALM[LR]|AVM|PLM[LR])$/.test(ev.nombre)) add("reflejo");
     if (ev.programa === "escape") add("escape");
     if (ev.programa === "puesta") add("huevo");
     if (ev.entrada.clase === "command interneuron") this.mandos.add(Math.sign(ev.entrada.empuje));
     if (this.mandos.size === 2) add("tira");
-    return nuevos;
   }
 
   stats() {
@@ -96,14 +90,10 @@ export class Juego {
   }
 
   _logro(k) {
-    if (this.logros.has(k)) return null;
+    if (this.logros.has(k)) return;
     this.logros.add(k);
-    const l = { clave: k, ...LOGROS[k] };
-    this.on.logro(l);
-    return l;
+    this.on.logro({ clave: k, ...LOGROS[k] });
   }
-
-  _emitir(ev) { this.on[ev]?.(this.stats()); }
 }
 
 /**
@@ -126,7 +116,8 @@ export class Carga {
     const paso = () => {
       if (!this.activa) return;
       this.cb.nivel(this.theta(), this.cargando());
-      this._raf = requestAnimationFrame(paso);
+      // con la carga llena ya no cambia nada: el bucle se detiene hasta soltar
+      if (performance.now() - this.t0 < CARGA_MS) this._raf = requestAnimationFrame(paso);
     };
     this._raf = requestAnimationFrame(paso);
   }

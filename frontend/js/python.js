@@ -18,13 +18,21 @@ export const respirar = () => new Promise((ok) => requestAnimationFrame(() => se
 // las llamadas rápidas (jobs de la cascada, el circuito de un paso) siempre pasan antes que las
 // lentas que esperan (matplotlib: precarga y figuras, decenas de segundos), así cambiar de paso en
 // el inspector no espera a que termine un dibujo. Lo que ya está corriendo no se interrumpe.
+// Además, de las lentas sólo espera la más nueva: un pedido nuevo (otra vista, otro paso) reemplaza al
+// que todavía no empezó, y cancelarLentas() las descarta todas (al cerrar el inspector).
 const colas = { alta: [], baja: [] };
 let ocupado = false;
 function enCola(tarea, { lenta = false } = {}) {
   return new Promise((ok, mal) => {
+    if (lenta) cancelarLentas("superseded by a newer request");
     colas[lenta ? "baja" : "alta"].push({ tarea, ok, mal });
     atender();
   });
+}
+
+/** Descarta las llamadas lentas que aún no empezaron (su promesa se rechaza con error.cancelado). */
+export function cancelarLentas(motivo = "cancelled") {
+  for (const t of colas.baja.splice(0)) t.mal(Object.assign(new Error(motivo), { cancelado: true }));
 }
 async function atender() {
   if (ocupado) return;

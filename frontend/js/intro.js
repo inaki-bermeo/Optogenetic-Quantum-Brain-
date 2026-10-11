@@ -7,8 +7,7 @@
 // Esc o "Skip intro" saltan en cualquier momento. Con prefers-reduced-motion no hay animaciones
 // ni vuelos de cámara: sólo el texto.
 
-const sleep = (ms) => new Promise((ok) => setTimeout(ok, ms));
-const REDUCED = typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
+import { REDUCED, sleep } from "./util.js";
 
 const ESCENAS = [
   { num: "01", titulo: "Light",
@@ -35,7 +34,6 @@ export class Intro {
     this.listo = false;
     this.terminada = false;
     this._turno = 0;
-    this._previo = null;
     this.o.app.inert = true;
     this.o.app.classList.add("en-intro");
     document.querySelector(".skip-link").inert = true;
@@ -142,10 +140,13 @@ export class Intro {
   }
 
   // --- escena 2: superposición (larga: el colapso llega con la escena 3)
-  async _escena1() {
+  async _escena1(turno) {
     const d = await this._demo;
     const { scene } = this.o;
     scene.setHighlight(d.ventana_indices);
+    if (REDUCED) scene.setActivity(scene.activity); // sin animación de colapso que lo aplique
+    // la superposición late hasta que la persona sigue; si no sigue, se pasa sola al colapso (8 s)
+    setTimeout(() => { if (turno === this._turno && this.escena === 1) this.siguiente(); }, 8000);
     if (!REDUCED) {
       this._colapso = scene.collapse(d.ventana_indices, d.ideal_marginales, this._sortear(d), { superposition: 600, collapse: 0.9 });
     }
@@ -160,9 +161,7 @@ export class Intro {
     sound.medicion(d.ideal_marginales, i, this.o.nota(spike), 0.2, 0.8);
     if (REDUCED) return;
     scene.collapseNow();
-    document.getElementById("sweep").classList.remove("run");
-    void document.getElementById("sweep").offsetWidth;
-    document.getElementById("sweep").classList.add("run");
+    this.o.barrido?.();
     await this._colapso;
     if (turno !== this._turno) return;
     sound.disparo(this.o.nota(spike), true);

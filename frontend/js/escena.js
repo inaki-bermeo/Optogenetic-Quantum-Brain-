@@ -1,12 +1,12 @@
 // Escena 3D: gusano C. elegans con sus 302 neuronas en posiciones reales.
 //
-// El lienzo vive dentro de un contenedor (no ocupa la ventana), el cuerpo .glb llega desde
+// El lienzo ocupa todo el escenario del HUD (con el HUD encima), el cuerpo .glb llega desde
 // Python como bytes (JS no puede leer archivos del proyecto en Qollab), respeta
 // prefers-reduced-motion y se maneja con teclado.
 //
 // Rendimiento (pensado para notebooks con gráficos integrados):
 //   * render bajo demanda: sólo se dibuja cuando algo cambia (cámara, animación, láser);
-//   * el bucle se detiene del todo mientras el lienzo no se ve (panel 2, fuera de pantalla,
+//   * el bucle se detiene del todo mientras el lienzo no se ve (inspector, fuera de pantalla,
 //     pantalla de inicio) y el nado solo se dibuja a 30 cuadros por segundo;
 //   * calidad alta / media / baja, con ajuste automático si los FPS caen;
 //   * bloom a media resolución en "media" y desactivado en "baja";
@@ -19,6 +19,7 @@ import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
 import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
 import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+import { REDUCED, T_COLAPSO, T_SUPERPOSICION } from "./util.js";
 
 const TYPE_COLOR = {
   sensory: new THREE.Color("#2dd4bf"),
@@ -51,7 +52,11 @@ const LUT = (() => {
 })();
 const lutIndex = (v) => 3 * Math.max(0, Math.min(255, Math.round(v * 255)));
 
-const REDUCED_MOTION = typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
+const REDUCED_MOTION = REDUCED;
+const Y_UP = new THREE.Vector3(0, 1, 0);
+const VENTANA_MAX = 10; // neuronas por circuito de la cascada
+const PARTICULAS_MAX = 10 * 17; // partículas del colapso: 3 a 17 por neurona
+const RASTRO_MAX = 128; // centros que dibuja el rastro de la cascada
 
 const S_AP = 0.02; // µm → unidades de escena (eje anteroposterior)
 const S_TR = 0.028; // ejes transversales (×1.4 respecto del real, para leer mejor el volumen)
@@ -109,10 +114,12 @@ const SWIM_W = (2 * Math.PI) / 3.2; // un ciclo cada 3.2 s: lento y suave
 const MOTION_REPOSO = { dir: 1, freq: 1, amp: 1, cabeza: 0, flex: 0, relaja: 0, bend: 0, bombeo: 0, brillo: 1 };
 const MOTION_TAU = { dir: 0.35, freq: 0.3, amp: 0.25, cabeza: 0.25, flex: 0.25, relaja: 0.3, bend: 0.45, bombeo: 0.15, brillo: 0.4 };
 
+// maxPx: tope de píxeles internos del lienzo (el lienzo ocupa toda la pantalla; en monitores grandes
+// se baja la resolución interna en vez de dibujar millones de píxeles con bloom).
 export const QUALITY = {
-  alta: { label: "High", pixelRatio: () => Math.min(window.devicePixelRatio, 1.75), bloom: true, bloomScale: 1 },
-  media: { label: "Medium", pixelRatio: () => 1, bloom: true, bloomScale: 0.5 },
-  baja: { label: "Low", pixelRatio: () => Math.min(window.devicePixelRatio, 1) * 0.85, bloom: false, bloomScale: 0 },
+  alta: { label: "High", pixelRatio: () => Math.min(window.devicePixelRatio, 1.75), bloom: true, bloomScale: 1, maxPx: 2.1e6 },
+  media: { label: "Medium", pixelRatio: () => 1, bloom: true, bloomScale: 0.5, maxPx: 1.2e6 },
+  baja: { label: "Low", pixelRatio: () => Math.min(window.devicePixelRatio, 1) * 0.85, bloom: false, bloomScale: 0, maxPx: 0.8e6 },
 };
 
 export class WormScene {
@@ -137,6 +144,12 @@ export class WormScene {
     this.controls.autoRotate = false;
     this.controls.autoRotateSpeed = 0.35;
     this.controls.addEventListener("change", () => this.requestRender());
+    // pantallas táctiles: OrbitControls pone touch-action: none (bloquea el desplazamiento de la página);
+    // con pan-y un dedo vertical desplaza la página y uno horizontal o dos dedos mueven la cámara
+    if (typeof matchMedia === "function" && matchMedia("(pointer: coarse)").matches) {
+      canvas.style.touchAction = "pan-y";
+      this.controls.touches = { ONE: THREE.TOUCH.ROTATE, TWO: THREE.TOUCH.DOLLY_ROTATE };
+    }
     // si la persona arrastra la cámara, manda ella: se corta cualquier vuelo y no hay acercamientos
     this.arrastrando = false;
     this.controls.addEventListener("start", () => { this.arrastrando = true; this._tween?.resolve(); this._tween = null; });
@@ -158,10 +171,11 @@ export class WormScene {
     this._tmpMat = new THREE.Matrix4();
     this._tmpVec = new THREE.Vector3();
     this._dirty = true;
-    this._perf = { frames: 0, time: 0, lastActive: 0 };
+    this._perf = { frames: 0, time: 0, probada: false };
 
+    // "auto" empieza en media y sube a alta sólo si el equipo la sostiene (ver _adaptQuality)
     this.autoQuality = quality === "auto";
-    this.quality = this.autoQuality ? (window.devicePixelRatio > 1.5 ? "media" : "alta") : quality;
+    this.quality = this.autoQuality ? "media" : quality;
 
     this.reducedMotion = REDUCED_MOTION;
     // uniforms compartidos por todos los materiales que ondulan
@@ -178,9 +192,11 @@ export class WormScene {
     this._actuar = null;
     this._driveT = 0;
     this.glbBytes = null;
-    this._paused = false; // lo decide main.js (panel 2, pantalla de inicio)
+    this._paused = false; // lo decide main.js (inspector abierto, pantalla de inicio)
     this._onScreen = true; // IntersectionObserver
     this._running = false;
+    this._loopDormido = false; // el bucle se detiene del todo cuando nada se mueve (ver _tick)
+    this._quietos = 0;
     this._sinceSwim = 0;
     this._addStars();
     this._bindEvents();
@@ -188,7 +204,7 @@ export class WormScene {
     this._updateLoop();
   }
 
-  /** main.js pausa la escena mientras no se ve (panel 2, pantalla de inicio). */
+  /** main.js pausa la escena mientras no se ve (inspector abierto, pantalla de inicio). */
   setPaused(v) { this._paused = v; this._updateLoop(); }
 
   _updateLoop() {
@@ -196,10 +212,11 @@ export class WormScene {
     if (run === this._running) return;
     this._running = run;
     if (run) {
-      this._last = performance.now();
       this._dirty = true;
-      this.renderer.setAnimationLoop(() => this._tick());
+      this._loopDormido = true;
+      this._wake();
     } else {
+      this._loopDormido = false;
       this.renderer.setAnimationLoop(null);
       // las animaciones en curso terminan ya: la cascada espera la promesa del colapso
       this._endCollapse();
@@ -210,7 +227,16 @@ export class WormScene {
   }
 
   on(name, fn) { this.callbacks[name] = fn; }
-  requestRender() { this._dirty = true; }
+  requestRender() { this._dirty = true; this._wake(); }
+
+  /** Rearranca el bucle de animación si estaba dormido (sin dibujar nada todavía). */
+  _wake() {
+    if (!this._loopDormido || !this._running) return;
+    this._loopDormido = false;
+    this._quietos = 0;
+    this._last = performance.now();
+    this.renderer.setAnimationLoop(() => this._tick());
+  }
 
   setQuality(q, { auto = false } = {}) {
     if (q === "auto") { this.autoQuality = true; q = this.quality; } else if (!auto) { this.autoQuality = false; }
@@ -253,6 +279,11 @@ export class WormScene {
       const a = this.positions[i], b = this.positions[j];
       ep.set([a.x, a.y, a.z, b.x, b.y, b.z], k * 6);
     });
+    // índices para las actualizaciones parciales (sólo la ventana medida cambia durante el colapso)
+    this._todas = Array.from({ length: n }, (_, i) => i);
+    this._todasAristas = Array.from({ length: m }, (_, k) => k);
+    this._aristasDe = Array.from({ length: n }, () => []);
+    for (let k = 0; k < m; k++) { this._aristasDe[this.edgeA[k]].push(k); this._aristasDe[this.edgeB[k]].push(k); }
     const eg = new THREE.BufferGeometry();
     eg.setAttribute("position", new THREE.BufferAttribute(ep, 3));
     eg.setAttribute("color", new THREE.BufferAttribute(new Float32Array(m * 6), 3));
@@ -265,6 +296,7 @@ export class WormScene {
     this.ringGroup = new THREE.Group();
     this.scene.add(this.ringGroup);
     this._buildLabel();
+    this._initFx();
     this._loadBody();
     this.setActivity(null);
   }
@@ -332,6 +364,7 @@ export class WormScene {
     try {
       if (!this.glbBytes) throw new Error("no .glb model");
       const gltf = await new GLTFLoader().parseAsync(this.glbBytes, "");
+      this.glbBytes = null; // ya parseado: no hace falta guardar los bytes
       const group = new THREE.Group();
       let cuerpo = null, faringe = null;
       gltf.scene.updateMatrixWorld(true);
@@ -354,7 +387,6 @@ export class WormScene {
       this._buildAnatomy(group, cuerpo, faringe);
       this.body = group;
       this.scene.add(group);
-      this.bodySource = "glb";
     } catch (err) {
       // 2) Respaldo: cuerpo aproximado generado aquí mismo
       console.info("Using procedural body:", err?.message ?? err);
@@ -362,7 +394,6 @@ export class WormScene {
       this._buildAnatomy(group, this._proceduralBodyGeometry(), null);
       this.body = group;
       this.scene.add(group);
-      this.bodySource = "procedural";
     }
     this.requestRender();
   }
@@ -520,7 +551,7 @@ export class WormScene {
     const S = this.swim, U = this.swimU, M = this.motion, T = this.motionT;
     if (this._actuar) this._actuar.update(dt);
     let moving = false;
-    const rapido = this._actuar?.vuelta ? 2 : 1; // la vuelta al reposo es más corta que la conducta
+    const rapido = this._actuar?.vuelta ? 3 : 1; // la vuelta al reposo es más corta que la conducta
     for (const k in M) {
       const d = T[k] - M[k];
       if (d === 0) continue;
@@ -562,8 +593,8 @@ export class WormScene {
   /**
    * El gusano actúa la conducta de una neurona (evento de js/conducta.js, Motor.aplicar).
    * `indice` ubica la flexión local a lo largo del cuerpo. Devuelve una promesa que se resuelve cuando
-   * todo volvió al reposo (el colapso siguiente necesita las neuronas en su lugar real); inmediata si
-   * no hay movimiento (prefers-reduced-motion, nado desactivado o lienzo oculto).
+   * empieza la vuelta al reposo; inmediata si no hay movimiento (prefers-reduced-motion, nado
+   * desactivado o lienzo oculto).
    */
   /** ¿Se puede animar una conducta ahora? (no con prefers-reduced-motion, nado apagado o lienzo oculto) */
   get puedeActuar() { return !this.reducedMotion && this.swim.enabled && this._running && !!this.positions; }
@@ -607,6 +638,9 @@ export class WormScene {
           A.vuelta = true;
           Object.assign(T, MOTION_REPOSO, { dir: T.dir });
           this.swim.target = 0;
+          // la cascada sigue ya: el colapso siguiente ondula con el mismo shader que el cuerpo, así que
+          // no hace falta esperar a que la vuelta al reposo termine del todo
+          A.resolve();
         }
         if (A.vuelta && this.swim.level === 0 && this._enReposo()) this._endActuar();
       };
@@ -653,22 +687,18 @@ export class WormScene {
 
   /** Un huevo sale por la vulva. */
   _ponerHuevo() {
-    this._quitarHuevo();
-    // mismo aspecto de microscopio que el cuerpo: borde brillante y relleno tenue (uK hace el fundido)
-    const egg = new THREE.Mesh(new THREE.SphereGeometry(1, 24, 16),
-      this._bodyMaterial({ color: "#3fd1b0", rim: "#d8fff4", strength: 0, fill: 0.35, grain: 0.35 }));
-    egg.scale.set(0.45, 0.3, 0.3); // ~55 × 35 µm, como un huevo real
+    const egg = this._huevoFx;
+    if (!egg) return;
     egg.position.copy(this.vulva());
     egg.userData.y0 = egg.position.y;
-    this.scene.add(egg);
+    egg.material.uniforms.uK.value = 0;
+    egg.visible = true;
     this._huevo = egg;
   }
 
   _quitarHuevo() {
     if (!this._huevo) return;
-    this.scene.remove(this._huevo);
-    this._huevo.geometry.dispose();
-    this._huevo.material.dispose();
+    this._huevo.visible = false;
     this._huevo = null;
   }
 
@@ -701,34 +731,27 @@ export class WormScene {
       m.position.copy(this.positions[i]);
       this.ringGroup.add(m);
     }
-    if (this.activity !== undefined) this.setActivity(this.activity);
+    // el tamaño de las neuronas resaltadas se aplica en el próximo setActivity (quien llama lo hace)
   }
 
   /** Rastro de la cascada: línea que une los centros sucesivos (índices de neuronas). */
   setTrail(indices) {
-    if (this.trail) {
-      this.scene.remove(this.trail);
-      this.trail.geometry.dispose();
-      this.trail.material.dispose();
-      this.trail = null;
-    }
-    if (indices && indices.length >= 2) {
-      const g = new THREE.BufferGeometry().setFromPoints(indices.map((i) => this.positions[i]));
-      this.trail = new THREE.Line(g, this._sw(new THREE.LineBasicMaterial({ color: new THREE.Color("#ff6a2b").multiplyScalar(1.5),
-        transparent: true, opacity: 0.95, toneMapped: false, depthWrite: false })));
-      this.scene.add(this.trail);
-    }
+    if (!this.trail) return;
+    const n = indices ? Math.min(indices.length, RASTRO_MAX) : 0;
+    const pos = this.trail.geometry.attributes.position;
+    // si la cadena es más larga que el lugar reservado se muestran los últimos RASTRO_MAX centros
+    const desde = indices ? indices.length - n : 0;
+    for (let k = 0; k < n; k++) { const p = this.positions[indices[desde + k]]; pos.setXYZ(k, p.x, p.y, p.z); }
+    pos.needsUpdate = true;
+    this.trail.geometry.setDrawRange(0, n);
+    this.trail.geometry.computeBoundingSphere();
+    this.trail.visible = n >= 2;
     this.requestRender();
   }
 
   _buildLabel() {
     this.labelEl = document.createElement("div");
-    Object.assign(this.labelEl.style, {
-      position: "absolute", pointerEvents: "none", zIndex: 4, font: "600 12px var(--mono)", color: "#cfe9ff",
-      textShadow: "0 0 8px rgba(56,225,255,.9)", transform: "translate(-50%, -160%)", whiteSpace: "nowrap",
-    });
-    this.labelEl.className = "neuron-label";
-    Object.assign(this.labelEl.style, { left: "0", top: "0", willChange: "transform" });
+    this.labelEl.className = "neuron-label"; // el estilo (retícula incluida) está en main.css
     this.labelEl.setAttribute("aria-hidden", "true");
     this.container.appendChild(this.labelEl);
     this.labelIndex = -1;
@@ -737,12 +760,13 @@ export class WormScene {
   setLabel(index, text) { this.labelIndex = index; this.labelEl.textContent = text ?? ""; this.requestRender(); }
 
   // ---------------------------------------------------------------- actividad
-  setActivity(values) {
+  /** Brillo de cada neurona (0..1). Con `indices` sólo se reescriben esas neuronas y sus sinapsis. */
+  setActivity(values, { indices = null } = {}) {
     this.activity = values;
-    const n = this.neurons.length;
     const col = this.mesh.instanceColor.array;
     const M = this._tmpMat.elements;
-    for (let i = 0; i < n; i++) {
+    const lista = indices ?? this._todas;
+    for (const i of lista) {
       const v = values ? values[i] : 0;
       const base = this.baseColors[i];
       let r, g, b, s;
@@ -767,14 +791,15 @@ export class WormScene {
     this.mesh.instanceColor.needsUpdate = true;
     this.mesh.instanceMatrix.needsUpdate = true;
 
-    if (this.edgeVisible) this._updateEdges(values);
+    if (this.edgeVisible) this._updateEdges(values, indices);
     this.requestRender();
   }
 
-  _updateEdges(values) {
+  _updateEdges(values, indices = null) {
     const ec = this.edgeLines.geometry.attributes.color.array;
     const A = this.edgeA, B = this.edgeB, W = this.edgeW;
-    for (let k = 0; k < A.length; k++) {
+    const lista = indices ? [...new Set(indices.flatMap((i) => this._aristasDe[i]))] : this._todasAristas;
+    for (const k of lista) {
       const act = values ? Math.sqrt(values[A[k]] * values[B[k]]) : 0;
       const base = 0.25 + 0.75 * W[k];
       const li = lutIndex(0.45 + 0.55 * act);
@@ -795,31 +820,74 @@ export class WormScene {
     this.requestRender();
   }
 
+  // ------------------------------------------------------------- efectos reutilizables
+  /**
+   * Láser, colapso, rastro y huevo se crean UNA vez y se reutilizan (visibilidad, opacidad, escala).
+   * Crear y destruir sus materiales en cada paso hacía que three.js liberara y recompilara sus shaders:
+   * un tirón por paso. _initFx los compila por adelantado (renderer.compile) mientras carga la página.
+   */
+  _initFx() {
+    const fx = new THREE.Group();
+    const mesh = (geo, color, op, extra) => { const m = new THREE.Mesh(geo, this._glow(color, op, extra)); fx.add(m); return m; };
+    const dosCaras = { side: THREE.DoubleSide };
+    // láser: cilindros de altura 1 (se escalan al largo del haz), destello y onda
+    const cil = (r) => new THREE.CylinderGeometry(r, r * 0.6, 1, 12, 1, true);
+    this._laserFx = {
+      glow: mesh(cil(0.07), new THREE.Color("#4da3ff").multiplyScalar(1.6), 0),
+      core: mesh(cil(0.014), new THREE.Color("#e8f4ff").multiplyScalar(2), 0),
+      flash: mesh(new THREE.SphereGeometry(0.3, 16, 12), new THREE.Color("#7cc4ff").multiplyScalar(3), 0),
+      ring: mesh(new THREE.RingGeometry(0.2, 0.24, 48), new THREE.Color("#4da3ff").multiplyScalar(2.5), 0, dosCaras),
+    };
+    // colapso: hasta VENTANA_MAX halos, partículas, destello y anillo sobre la neurona medida
+    const haloGeo = new THREE.SphereGeometry(0.22, 18, 12);
+    const pts = new THREE.Points(new THREE.BufferGeometry(), this._sw(new THREE.PointsMaterial({
+      color: new THREE.Color("#ffb08a").multiplyScalar(1.6), size: 0.11, transparent: true, opacity: 0,
+      blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false })));
+    pts.geometry.setAttribute("position", new THREE.BufferAttribute(new Float32Array(PARTICULAS_MAX * 3), 3));
+    fx.add(pts);
+    this._collapseFx = {
+      halos: Array.from({ length: VENTANA_MAX }, () => mesh(haloGeo, new THREE.Color("#38e1ff").multiplyScalar(1.3), 0)),
+      pts,
+      flash: mesh(new THREE.SphereGeometry(0.3, 18, 12), new THREE.Color("#ff6a2b").multiplyScalar(2.6), 0),
+      ring: mesh(new THREE.RingGeometry(0.24, 0.29, 48), new THREE.Color("#ff6a2b").multiplyScalar(2.2), 0, dosCaras),
+    };
+    // rastro: una línea con lugar para RASTRO_MAX centros (drawRange muestra los usados)
+    const tg = new THREE.BufferGeometry();
+    tg.setAttribute("position", new THREE.BufferAttribute(new Float32Array(RASTRO_MAX * 3), 3));
+    this.trail = new THREE.Line(tg, this._sw(new THREE.LineBasicMaterial({ color: new THREE.Color("#ff6a2b").multiplyScalar(1.5),
+      transparent: true, opacity: 0.95, toneMapped: false, depthWrite: false })));
+    fx.add(this.trail);
+    // huevo (conducta "puesta"): mismo aspecto de microscopio que el cuerpo; uK hace el fundido
+    this._huevoFx = new THREE.Mesh(new THREE.SphereGeometry(1, 24, 16),
+      this._bodyMaterial({ color: "#3fd1b0", rim: "#d8fff4", strength: 0, fill: 0.35, grain: 0.35 }));
+    this._huevoFx.scale.set(0.45, 0.3, 0.3); // ~55 × 35 µm, como un huevo real
+    fx.add(this._huevoFx);
+    this.scene.add(fx);
+    // compilar todo ahora (visible un instante, con opacidad 0) y dejarlo oculto
+    fx.children.forEach((o) => { o.visible = true; });
+    try { this.renderer.compile(this.scene, this.camera); } catch (e) { /* sin compile: se compila al primer uso */ }
+    fx.children.forEach((o) => { o.visible = false; });
+  }
+
   // ------------------------------------------------------------------- láser
   fireLaser(index, intensity = 1) {
-    const target = this.positions[index];
     this._removeLaser();
-    if (!this._running) return; // no se ve: no hay nada que animar
-    const group = new THREE.Group();
+    if (!this._running || !this._laserFx) return; // no se ve: no hay nada que animar
+    const target = this.positions[index];
     const from = target.clone().add(new THREE.Vector3(-0.6, 4.5, 1.2));
     const dir = target.clone().sub(from);
     const len = dir.length();
-    const mk = (r, color, op) => {
-      const m = new THREE.Mesh(new THREE.CylinderGeometry(r, r * 0.6, len, 12, 1, true), this._glow(color, op));
+    const L = this._laserFx;
+    for (const m of [L.glow, L.core]) {
       m.position.copy(from).addScaledVector(dir, 0.5);
-      m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.clone().normalize());
-      return m;
-    };
-    const glow = mk(0.07, new THREE.Color("#4da3ff").multiplyScalar(1.6), 0.3);
-    const core = mk(0.014, new THREE.Color("#e8f4ff").multiplyScalar(2), 0.9);
-    const flash = new THREE.Mesh(new THREE.SphereGeometry(0.3, 16, 12), this._glow(new THREE.Color("#7cc4ff").multiplyScalar(3), 0.8));
-    flash.position.copy(target);
-    const ring = new THREE.Mesh(new THREE.RingGeometry(0.2, 0.24, 48),
-      this._glow(new THREE.Color("#4da3ff").multiplyScalar(2.5), 0.9, { side: THREE.DoubleSide }));
-    ring.position.copy(target);
-    group.add(glow, core, flash, ring);
-    this.scene.add(group);
-    this.laser = { group, glow, core, flash, ring, t: 0, intensity };
+      m.quaternion.setFromUnitVectors(Y_UP, dir.clone().normalize());
+      m.scale.set(1, len, 1);
+    }
+    L.flash.position.copy(target);
+    L.ring.position.copy(target);
+    Object.values(L).forEach((m) => { m.visible = true; m.material.opacity = 0; });
+    this.laser = { ...L, t: 0, intensity };
+    this.requestRender();
   }
 
   _animateLaser(dt) {
@@ -841,11 +909,9 @@ export class WormScene {
   }
 
   _removeLaser() {
-    const L = this.laser;
-    if (!L) return;
+    if (!this.laser) return;
     this.laser = null;
-    this.scene.remove(L.group);
-    L.group.traverse((o) => { o.geometry?.dispose(); o.material?.dispose(); });
+    Object.values(this._laserFx).forEach((m) => { m.visible = false; });
     this.requestRender();
   }
 
@@ -857,104 +923,106 @@ export class WormScene {
    *  halos se apagan y la elegida destella. Si no hubo spike (vacío), todo se desvanece.
    * Devuelve una promesa que se resuelve al terminar (inmediata con prefers-reduced-motion).
    */
-  collapse(windowIdx, probs, spikeIdx, { superposition = 0.9, collapse = 0.75 } = {}) {
+  collapse(windowIdx, probs, spikeIdx, { superposition = T_SUPERPOSICION, collapse = T_COLAPSO } = {}) {
     this._endCollapse();
-    if (this.reducedMotion || !this._running || !this.positions || !windowIdx?.length) return Promise.resolve();
+    if (this.reducedMotion || !this._running || !this.positions || !windowIdx?.length || !this._collapseFx) {
+      return Promise.resolve();
+    }
+    const F = this._collapseFx;
+    const ventana = windowIdx.slice(0, VENTANA_MAX);
     const tot = probs.reduce((a, b) => a + Math.max(0, b), 0) || 1;
-    const p = probs.map((v) => Math.max(0, v) / tot);
-    const pmax = Math.max(...p, 1e-9);
-    const group = new THREE.Group();
-    const haloGeo = new THREE.SphereGeometry(0.22, 18, 12);
-    const halos = windowIdx.map((g, i) => {
-      const m = new THREE.Mesh(haloGeo, this._glow(new THREE.Color("#38e1ff").multiplyScalar(1.3), 0));
-      m.position.copy(this.positions[g]);
-      m.userData = { r: 0.35 + 1.25 * Math.sqrt(p[i] / pmax), ph: i * 0.7 };
-      group.add(m);
-      return m;
+    const peso = ventana.map((_, i) => Math.sqrt(Math.max(0, probs[i]) / tot)); // √p
+    const pmax = Math.max(...peso, 1e-9);
+    const rel = peso.map((w) => 0.35 + 0.65 * w / pmax); // brillo relativo de cada neurona
+    const halos = F.halos.slice(0, ventana.length);
+    halos.forEach((h, i) => {
+      h.position.copy(this.positions[ventana[i]]);
+      h.userData = { r: 0.35 + 1.25 * peso[i] / pmax, ph: i * 0.7 };
+      h.material.opacity = 0;
+      h.visible = true;
     });
     // partículas: más cuanto más probable era cada neurona
     const starts = [];
-    windowIdx.forEach((g, i) => {
-      const n = 3 + Math.round(14 * p[i] / pmax);
-      for (let k = 0; k < n; k++) {
+    ventana.forEach((g, i) => {
+      const n = Math.round(3 + 14 * (peso[i] / pmax) ** 2);
+      for (let k = 0; k < n && starts.length < PARTICULAS_MAX; k++) {
         const j = new THREE.Vector3((Math.random() - 0.5) * 0.3, (Math.random() - 0.5) * 0.3, (Math.random() - 0.5) * 0.3);
         starts.push({ from: this.positions[g].clone().add(j), delay: Math.random() * 0.25 });
       }
     });
-    const pp = new Float32Array(starts.length * 3);
-    const pg = new THREE.BufferGeometry();
-    pg.setAttribute("position", new THREE.BufferAttribute(pp, 3));
-    const pts = new THREE.Points(pg, this._sw(new THREE.PointsMaterial({ color: new THREE.Color("#ffb08a").multiplyScalar(1.6), size: 0.11,
-      transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false })));
-    group.add(pts);
+    const pp = F.pts.geometry.attributes.position;
+    F.pts.geometry.setDrawRange(0, starts.length);
+    F.pts.material.opacity = 0;
     // destello final sobre la neurona medida
     const target = spikeIdx != null ? this.positions[spikeIdx] : null;
-    const flash = new THREE.Mesh(new THREE.SphereGeometry(0.3, 18, 12), this._glow(new THREE.Color("#ff6a2b").multiplyScalar(2.6), 0));
-    const ring = new THREE.Mesh(new THREE.RingGeometry(0.24, 0.29, 48),
-      this._glow(new THREE.Color("#ff6a2b").multiplyScalar(2.2), 0, { side: THREE.DoubleSide }));
-    if (target) { flash.position.copy(target); ring.position.copy(target); group.add(flash, ring); }
-    this.scene.add(group);
+    F.pts.visible = !!target;
+    for (const m of [F.flash, F.ring]) {
+      m.visible = !!target;
+      m.material.opacity = 0;
+      m.scale.setScalar(1);
+      if (target) m.position.copy(target);
+    }
 
+    // sólo cambian las neuronas de la ventana: el resto queda atenuado una vez y no se reescribe
     const N = this.neurons.length;
     const vals = new Float32Array(N);
-    const base = this.activity ? Float32Array.from(this.activity) : new Float32Array(N);
+    if (this.activity) for (let i = 0; i < N; i++) vals[i] = 0.35 * this.activity[i];
+    this.setActivity(vals); // una vez completo: el resto de la red queda atenuado
     return new Promise((resolve) => {
       this._collapse = {
-        t: 0, T1: superposition, group, resolve,
+        t: 0, T1: superposition, resolve,
         update: (dt) => {
           const C = this._collapse;
           C.t += dt;
           const T1 = C.T1, t = C.t, T2 = T1 + collapse, TAIL = 0.45;
           if (t >= T2) {
             // cola: la actividad ya la decide main.js; sólo se apaga el destello
-            if (!C.done) { C.done = true; pts.visible = false; halos.forEach((h) => { h.visible = false; }); resolve(); }
+            if (!C.done) { C.done = true; F.pts.visible = false; halos.forEach((h) => { h.visible = false; }); resolve(); }
             const v = Math.min(1, (t - T2) / TAIL);
-            flash.material.opacity = 0.9 * (1 - v);
-            ring.material.opacity = 0.9 * (1 - v);
-            ring.scale.setScalar(3.5 + 2 * v);
-            ring.lookAt(this.camera.position);
+            F.flash.material.opacity = 0.9 * (1 - v);
+            F.ring.material.opacity = 0.9 * (1 - v);
+            F.ring.scale.setScalar(3.5 + 2 * v);
+            F.ring.lookAt(this.camera.position);
             if (v >= 1) { this._endCollapse(); return false; }
             return true;
           }
-          vals.set(base);
-          for (let i = 0; i < N; i++) vals[i] *= 0.35;
           if (t < T1) {
             // fase 1: superposición (todas a la vez, latiendo)
             const a = Math.min(1, t / 0.25);
-            windowIdx.forEach((g, i) => {
+            ventana.forEach((g, i) => {
               const beat = 0.75 + 0.25 * Math.sin(t * 9 + halos[i].userData.ph);
-              vals[g] = Math.min(1, (0.35 + 0.65 * Math.sqrt(p[i] / pmax)) * beat * a);
+              vals[g] = Math.min(1, rel[i] * beat * a);
               halos[i].scale.setScalar(halos[i].userData.r * (0.85 + 0.2 * beat));
-              halos[i].material.opacity = 0.45 * a * (0.35 + 0.65 * Math.sqrt(p[i] / pmax));
+              halos[i].material.opacity = 0.45 * a * rel[i];
             });
           } else {
             // fase 2: colapso
             const u = Math.min(1, (t - T1) / collapse);
             const fade = 1 - u;
-            windowIdx.forEach((g, i) => {
+            ventana.forEach((g, i) => {
               const own = g === spikeIdx;
-              vals[g] = own ? Math.min(1, 0.6 + 0.4 * u) : Math.max(0.04, (0.35 + 0.65 * Math.sqrt(p[i] / pmax)) * fade * fade);
-              halos[i].material.opacity = own ? 0.45 * fade : 0.45 * fade * fade * (0.35 + 0.65 * Math.sqrt(p[i] / pmax));
+              vals[g] = own ? Math.min(1, 0.6 + 0.4 * u) : Math.max(0.04, rel[i] * fade * fade);
+              halos[i].material.opacity = own ? 0.45 * fade : 0.45 * fade * fade * rel[i];
             });
             if (target) {
-              pts.material.opacity = Math.min(1, 3 * u) * (u < 0.85 ? 1 : (1 - u) / 0.15);
+              F.pts.material.opacity = Math.min(1, 3 * u) * (u < 0.85 ? 1 : (1 - u) / 0.15);
               starts.forEach((s, k) => {
                 const v = Math.max(0, Math.min(1, (u - s.delay) / (1 - s.delay)));
                 const e = v * v * (3 - 2 * v);
-                pp[k * 3] = s.from.x + (target.x - s.from.x) * e;
-                pp[k * 3 + 1] = s.from.y + (target.y - s.from.y) * e + Math.sin(Math.PI * e) * 0.25;
-                pp[k * 3 + 2] = s.from.z + (target.z - s.from.z) * e;
+                pp.setXYZ(k, s.from.x + (target.x - s.from.x) * e,
+                  s.from.y + (target.y - s.from.y) * e + Math.sin(Math.PI * e) * 0.25,
+                  s.from.z + (target.z - s.from.z) * e);
               });
-              pg.attributes.position.needsUpdate = true;
+              pp.needsUpdate = true;
               const f = Math.max(0, (u - 0.6) / 0.4);
-              flash.material.opacity = 0.9 * f;
-              flash.scale.setScalar(0.5 + 0.9 * f);
-              ring.material.opacity = 0.9 * f;
-              ring.scale.setScalar(1 + 2.5 * f);
-              ring.lookAt(this.camera.position);
+              F.flash.material.opacity = 0.9 * f;
+              F.flash.scale.setScalar(0.5 + 0.9 * f);
+              F.ring.material.opacity = 0.9 * f;
+              F.ring.scale.setScalar(1 + 2.5 * f);
+              F.ring.lookAt(this.camera.position);
             }
           }
-          this.setActivity(vals);
+          this.setActivity(vals, { indices: ventana });
           return true;
         },
       };
@@ -965,8 +1033,8 @@ export class WormScene {
     const C = this._collapse;
     if (!C) return;
     this._collapse = null;
-    this.scene.remove(C.group);
-    C.group.traverse((o) => { o.geometry?.dispose(); o.material?.dispose(); });
+    const F = this._collapseFx;
+    [...F.halos, F.pts, F.flash, F.ring].forEach((o) => { o.visible = false; });
     this.requestRender();
     C.resolve();
   }
@@ -1013,6 +1081,7 @@ export class WormScene {
       this.requestRender();
       return Promise.resolve();
     }
+    this._wake();
     return new Promise((resolve) => {
       this._tween?.resolve();
       this._tween = { t: 0, dur: dur / 1000, resolve, p0: this.camera.position.clone(), p1: pos,
@@ -1073,15 +1142,21 @@ export class WormScene {
     if (typeof IntersectionObserver === "function") {
       new IntersectionObserver(([e]) => { this._onScreen = e.isIntersecting; this._updateLoop(); }).observe(this.canvas);
     }
-    const local = (e) => { const r = this.canvas.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; };
-    this.canvas.addEventListener("pointermove", (e) => { this.pointer = local(e); this._pointerMoved = true; });
-    this.canvas.addEventListener("pointerleave", () => { this.pointer = null; this._pointerMoved = true; });
+    // el lienzo llena su contenedor: offsetX/Y ya son coordenadas locales (sin getBoundingClientRect)
+    const local = (e) => [e.offsetX, e.offsetY];
+    this.canvas.addEventListener("pointermove", (e) => {
+      if (e.pointerType !== "mouse") return; // en pantallas táctiles no hay "hover"
+      this.pointer = local(e);
+      this._pointerMoved = true;
+      this._wake();
+    });
+    this.canvas.addEventListener("pointerleave", () => { this.pointer = null; this._pointerMoved = true; this._wake(); });
     let down = null;
     this.canvas.addEventListener("pointerdown", (e) => { down = [e.clientX, e.clientY]; });
     this.canvas.addEventListener("pointerup", (e) => {
       if (!down || Math.hypot(e.clientX - down[0], e.clientY - down[1]) > 5) return;
       const [x, y] = local(e);
-      const idx = this._pick(x, y);
+      const idx = this._pick(x, y, e.pointerType === "mouse" ? 14 : 28); // con el dedo, más margen
       if (idx >= 0) this.callbacks.pick(idx);
     });
     document.addEventListener("visibilitychange", () => this._updateLoop());
@@ -1095,11 +1170,11 @@ export class WormScene {
     });
   }
 
-  /** Neurona más cercana al puntero en pantalla (≤ 14 px). O(302), sin raycasting. */
-  _pick(px, py) {
+  /** Neurona más cercana al puntero en pantalla (≤ radio px). O(302), sin raycasting. */
+  _pick(px, py, radio = 14) {
     if (!this.positions) return -1;
-    const w = this._w, h = this._h;
-    let best = -1, bestD = 14 * 14, bestZ = Infinity;
+    const w = this._w, h = this._h, r2 = radio * radio;
+    let best = -1, bestD = r2, bestZ = Infinity;
     for (let i = 0; i < this.positions.length; i++) {
       const p = this._tmpVec.copy(this.positions[i]);
       this.deform(p);
@@ -1107,7 +1182,7 @@ export class WormScene {
       if (p.z > 1) continue;
       const dx = (p.x * 0.5 + 0.5) * w - px, dy = (-p.y * 0.5 + 0.5) * h - py;
       const d = dx * dx + dy * dy;
-      if (d < bestD || (d < 14 * 14 && Math.abs(d - bestD) < 4 && p.z < bestZ)) { best = i; bestD = d; bestZ = p.z; }
+      if (d < bestD || (d < r2 && Math.abs(d - bestD) < 4 && p.z < bestZ)) { best = i; bestD = d; bestZ = p.z; }
     }
     return best;
   }
@@ -1116,7 +1191,7 @@ export class WormScene {
     const w = Math.max(1, this.container.clientWidth), h = Math.max(1, this.container.clientHeight);
     this._w = w; this._h = h; // tamaño en CSS px, cacheado: leerlo en cada cuadro fuerza un reflow
     const Q = QUALITY[this.quality];
-    const pr = Q.pixelRatio();
+    const pr = Math.min(Q.pixelRatio(), Math.sqrt(Q.maxPx / (w * h)));
     this.renderer.setPixelRatio(pr);
     this.renderer.setSize(w, h, false);
     this.composer.setPixelRatio(pr);
@@ -1139,6 +1214,9 @@ export class WormScene {
       const order = ["alta", "media", "baja"];
       const i = order.indexOf(this.quality);
       if (fps < 28 && i < 2) this.setQuality(order[i + 1], { auto: true });
+      // una sola prueba hacia arriba: si "media" va holgada, se pasa a "alta"
+      else if (!P.probada && this.quality === "media" && fps >= 50) this.setQuality("alta", { auto: true });
+      P.probada = true;
     }
   }
 
@@ -1148,13 +1226,15 @@ export class WormScene {
     this._last = now;
     const dt = Math.min(0.1, rawDt);
     let active = false;
+    // movimiento "de ambiente" (órbita automática, nado): se dibuja a 30 cuadros por segundo
+    const ambiente = this.controls.autoRotate && !this.arrastrando && !this._tween;
     if (this._animateTween(dt)) active = true;
-    if (this.controls.update()) active = true; // amortiguación / rotación automática
+    if (!ambiente && this.controls.update()) active = true; // amortiguación tras arrastrar
     if (this._animateLaser(dt)) active = true;
     if (this._collapse && this._collapse.update(dt)) active = true;
-    // El nado solo, sin nada más moviéndose, se dibuja a 30 cuadros por segundo
     this._sinceSwim += dt;
     if (this._sinceSwim >= SWIM_FRAME || active || this._dirty) {
+      if (ambiente && this.controls.update(this._sinceSwim)) active = true;
       if (this._animateSwim(this._sinceSwim)) active = true;
       this._sinceSwim = 0;
     }
@@ -1169,7 +1249,16 @@ export class WormScene {
       this.callbacks.hover(idx, this.pointer);
     }
 
-    if (!(active || this._dirty)) return; // nada cambió: no se dibuja (ahorra GPU y batería)
+    if (!(active || this._dirty)) {
+      // nada cambió: no se dibuja; tras ~0.5 s quieto el bucle se detiene del todo (requestRender y la
+      // entrada del usuario lo despiertan)
+      if (++this._quietos > 30 && !this._pointerMoved) {
+        this._loopDormido = true;
+        this.renderer.setAnimationLoop(null);
+      }
+      return;
+    }
+    this._quietos = 0;
     this._dirty = false;
     if (this.ringGroup) this.ringGroup.children.forEach((m) => m.quaternion.copy(this.camera.quaternion));
     if (this.labelIndex >= 0 && this.positions) {

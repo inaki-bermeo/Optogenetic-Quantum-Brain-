@@ -234,6 +234,33 @@ def main():
         print("reduced motion:", pag.inner_text("#casc-estado"))
         assert "worm" in pag.inner_text("#casc-chips").lower(), "reduced motion: falta el chip de conducta"
         nav.close()
+        # 7) teléfono (iPhone 13, táctil): la consola queda justo bajo el 3D, mantener para cargar con el
+        #    dedo, un dedo vertical desplaza la página
+        nav = p.chromium.launch(args=ARGS)
+        ctx = nav.new_context(**p.devices["iPhone 13"])
+        pag = ctx.new_page()
+        pag.on("pageerror", lambda e: errores.append(f"pageerror (phone): {e}"))
+        pag.goto(a.url)
+        pag.wait_for_function("document.getElementById('intro').dataset.fase === 'titulo'", timeout=90000)
+        pag.tap("#intro-skip")
+        pag.wait_for_selector("#intro", state="hidden", timeout=20000)
+        vista = pag.locator("#viewport").bounding_box()
+        consola = pag.locator("#hud-deck").bounding_box()
+        assert abs(consola["y"] - (vista["y"] + vista["height"])) < 40, "la consola debe ir justo bajo el 3D"
+        assert pag.evaluate("document.getElementById('scene').style.touchAction") == "pan-y", "un dedo debe poder desplazar"
+        pag.screenshot(path=str(out / "7_telefono.png"), **SHOT)
+        pag.locator("#fire-btn").scroll_into_view_if_needed()
+        caja = pag.locator("#fire-btn").bounding_box()
+        x, y = caja["x"] + caja["width"] / 2, caja["y"] + caja["height"] / 2
+        cdp = ctx.new_cdp_session(pag)
+        cdp.send("Input.dispatchTouchEvent", {"type": "touchStart", "touchPoints": [{"x": x, "y": y}]})
+        pag.wait_for_function("document.getElementById('dose-meter').classList.contains('charging')", timeout=5000)
+        pag.wait_for_timeout(500)
+        print("teléfono · cargando con el dedo: disparo", pag.inner_text("#pfire"))
+        cdp.send("Input.dispatchTouchEvent", {"type": "touchEnd", "touchPoints": []})
+        pag.wait_for_selector(".achv", timeout=30000)
+        print("teléfono: carga táctil y disparo ✓")
+        nav.close()
     if errores:
         print("\n".join(errores))
         sys.exit(1)

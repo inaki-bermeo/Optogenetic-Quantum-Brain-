@@ -73,7 +73,7 @@
         <p class="narr-kicker" id="narr-kicker">Standby</p>
         <p class="narr-text" id="narr-text">Loading the worm…</p>
       </div>
-      <details class="chain" id="chain-box">
+      <details class="chain">
         <summary><span class="lbl">Spike chain</span> <span class="chain-n" id="chain-n">0</span></summary>
         <ol class="casc-log" id="casc-log" aria-label="Spike chain"></ol>
       </details>
@@ -120,7 +120,7 @@
           <button type="button" class="help" data-help="theta" aria-label="What is θ?">?</button>
           <b id="theta-val">π</b></div>
         <div class="dose-meter" id="dose-meter" role="meter" aria-labelledby="dose-lbl" aria-valuemin="0" aria-valuemax="1"
-             aria-valuenow="1" aria-valuetext="fire chance 100%"><i id="dose-fill"></i></div>
+             aria-valuenow="1" aria-valuetext="fire chance 100%"><i></i></div>
         <p class="deck-sub">Fire chance <b id="pfire">100%</b> · sin²(θ/2)</p>
       </div>
 
@@ -135,7 +135,7 @@
       <div class="deck-cell deck-fire">
         <button type="button" class="fire-btn" id="fire-btn" aria-describedby="fire-hint">
           <span class="fire-charge" aria-hidden="true"></span>
-          <span class="fire-txt" id="fire-label">Fire laser at AVM</span>
+          <span class="fire-txt" id="fire-label">Fire at AVM</span>
         </button>
         <div class="fire-row">
           <p class="deck-sub" id="fire-hint">Tap: fire at dose θ · hold: charge</p>
