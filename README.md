@@ -6,7 +6,7 @@ This effort is supported by Qollab & IonQ.
 
 🎬 **Demo video (2–3 min):** [add the public link] · 💻 **Code (MIT):** https://github.com/JoaquinQu/Cerebro-Cu-ntico-Optogenetico · 📖 **Full theory (Spanish):** [docs/theory.md](https://github.com/inaki-bermeo/Optogenetic-Quantum-Brain-/blob/main/docs/theory.md)
 
-![The 3D C. elegans worm: ten neurons glow in superposition around the neuron hit by the laser, just before the measurement collapses them onto one.](https://raw.githubusercontent.com/inaki-bermeo/Optogenetic-Quantum-Brain-/main/docs/card/hero.png)
+![Title screen: "Optogenetic Quantum Brain" in large type over the live 3D worm, with a Press start prompt.](https://raw.githubusercontent.com/inaki-bermeo/Optogenetic-Quantum-Brain-/main/docs/card/hero.png)
 
 ---
 
@@ -15,43 +15,62 @@ This effort is supported by Qollab & IonQ.
 - **What it is.** An interactive 3D model of the nervous system of the worm *C. elegans*: all 302 neurons, wired with its real synapses. You fire a "laser" at one neuron and watch the excitation travel.
 - **What is quantum about it.** Every jump of the spike is decided by a real Qiskit circuit: 10 qubits (the neuron that fired and its 9 most connected neighbours), the laser as an `RX(θ)` gate, the quantum walk as a Trotterized `PauliEvolutionGate`, then a measurement. It runs on whichever backend you pick when you press **Run**, including IonQ.
 - **What you learn.** Superposition (the excitation is spread over 10 neurons at once), interference (some neighbours stay dark because paths cancel), collapse (the measurement picks one neuron) and the **quantum Zeno effect** (measure too often and the spike freezes).
-- **What is new.** A quantum walk on a real connectome, a spike cascade driven by measurements, a gate-by-gate view of every circuit that ran, and sound that follows the physics.
+- **What is new.** A quantum walk on a real connectome, a spike cascade driven by measurements, a gate-by-gate view of every circuit that ran, and a game-like lab where the controls, the sound and the achievements all follow the physics.
 
 ## Try it in one minute
 
-1. Press **Run** and choose **Built-in simulator** (free and instant), then press the start button on the intro screen.
-2. In **Laser & measure**, keep the default neuron **AVM** (a touch-sensing neuron) and press **Fire laser**. The spike starts hopping along the worm and leaves a trail.
-3. Move the **τ** slider (time between measurements) and compare **τ = 8** (the spike travels) with **τ = 2** (it barely moves: the Zeno effect). Lower **θ** and the laser sometimes fails to fire. Steps and shots per circuit are in **Lab settings**.
-4. Switch to the **The Qiskit circuit** tab to see the exact circuit of any step, gate by gate, next to the counts the backend returned.
-5. *Optional:* press **Stop**, then **Run** with **IonQ Forte 1 (Remote simulator)**, also free. IonQ allows one job per Run, so the laser runs one circuit.
+1. Press **Run** and choose **Built-in simulator** (free and instant). A short intro boots the lab: press **Start** and follow the three beats (Light → Superposition → Collapse), or press **Esc** to skip.
+2. The laser targets **AVM**, a touch-sensing neuron. **Hold** the fire button (or **Space**) to charge the laser: the charge is the dose θ, and the meter shows the chance that the neuron fires, sin²(θ/2). Release to fire. A quick tap fires at full dose.
+3. Watch each circuit: the 10 neurons of the window pulse in superposition, then the measurement collapses them onto one, which fires the next circuit. The spike hops along the worm and leaves a trail.
+4. Move **Measure every τ** and compare **τ = 8** (the spike travels) with **τ = 2** (it barely moves: the Zeno effect).
+5. Press **C** to open the **circuit inspector**: the exact circuit of any step, gate by gate, next to the counts the backend returned.
+6. *Optional:* press **Stop**, then **Run** with **IonQ Forte 1 (Remote simulator)**, also free. IonQ allows one job per Run, so the laser runs one circuit.
 
 ---
 
 ## What you're seeing
 
-### Panel 1 · Laser & measure
+### The intro
 
-![Panel 1: the worm with the measured window lit, the spike chain and the bar chart of theory versus measured probabilities.](https://raw.githubusercontent.com/inaki-bermeo/Optogenetic-Quantum-Brain-/main/docs/card/panel1.png)
+![Briefing beat 03 · Collapse: the camera close on the worm, an orange ring where the measured neuron fires, and the caption explaining the measurement.](https://raw.githubusercontent.com/inaki-bermeo/Optogenetic-Quantum-Brain-/main/docs/card/intro.png)
 
-- **One circuit per step.** Each step builds a 10-qubit circuit around the neuron that just fired, runs it as one job, and measures all 10 qubits.
-- **The next neuron.** One shot is picked at random. The neuron that came out as 1 fires the next step, so the spike jumps from circuit to circuit across the worm.
-- **On the worm.** The 10 neurons of the window pulse together while they are in superposition, then collapse onto the measured one. A trail marks the neurons that fired before.
-- **The worm itself** looks like a fluorescence micrograph: a translucent body with cuticle rings, the pharynx and the intestine inside, and a slow swimming wave that pauses while each circuit is measured.
-- **Results.** Bars compare the theory with what the circuit measured. The spike chain lists every step, and every chart has a data table behind it.
+- **Boot.** A console types each real loading stage as it completes: the Python core, the connectome, the body mesh and the backend.
+- **Title.** The live worm orbits slowly behind the title.
+- **Three beats on the real data**, using the actual circuit of AVM:
+  - *Light:* the camera flies in and the laser fires.
+  - *Superposition:* its 10-qubit window glows with the circuit's ideal probabilities.
+  - *Collapse:* one neuron is drawn from those probabilities and fires.
+- Then the HUD slides in from the edges. **Esc** skips the intro at any time, and it can be replayed from the settings menu.
+
+### The lab HUD
+
+![The HUD mid-cascade: stats bar, mission log, the 3D worm with the measured window lit, the scanner with the step's circuit and theory-vs-measured bars, and the control deck.](https://raw.githubusercontent.com/inaki-bermeo/Optogenetic-Quantum-Brain-/main/docs/card/panel1.png)
+
+- **Colour code.** Cyan means quantum (superposition, theory). Orange means measured (the spike, the laser). Yellow means real hardware.
+- **One circuit per step.** Each step builds a 10-qubit circuit around the neuron that just fired, runs it as one job, and measures all 10 qubits. One valid shot is picked at random, and the neuron that came out as 1 fires the next step.
+- **Top bar:** step, jumps, current streak, and how many of the 302 neurons have fired so far.
+- **Mission log** (left): narrates each step, with the spike chain underneath.
+- **Scanner** (right): the step's circuit, valid and empty shots, gate counts, and bars comparing the theory with what the circuit measured. Each chart has a data table behind it.
+- **Control deck** (bottom): target neuron, dose meter, τ and the fire button.
+- **Achievements** pop up when something physical happens. Each one explains it in a line:
+  - *Quantum leap*: the spike jumped;
+  - *Zeno trap*: the spike stayed put 4 times in a row;
+  - *Misfire*: θ < π and no neuron fired;
+  - *Long range*: the spike landed two synapses away.
+- **The worm** looks like a fluorescence micrograph: a translucent body with cuticle rings, the pharynx and the intestine inside, and a slow swimming wave that pauses while each circuit is measured.
 - **Sound** (toggle in the top bar):
-  - the laser is a falling chirp;
-  - the superposition is ten slightly detuned tones, one per neuron, louder when that neuron is more likely;
-  - at the collapse they glide into the note of the measured neuron. Each neuron has its own note on a pentatonic scale, so every cascade plays its own melody;
-  - a soft, generative underwater ambience plays underneath and dips during each measurement (volume in Lab settings).
+  - the laser charges with a rising tone and fires with a falling chirp;
+  - the superposition is ten slightly detuned tones that glide into the note of the measured neuron, so every cascade plays its own pentatonic melody;
+  - an underwater ambience plays underneath and dips during each measurement.
 
-### Panel 2 · The Qiskit circuit
+### The circuit inspector (C)
 
-![Panel 2: the full circuit of one step drawn gate by gate, with the counts returned by the backend.](https://raw.githubusercontent.com/inaki-bermeo/Optogenetic-Quantum-Brain-/main/docs/card/panel2.png)
+![The circuit inspector: the full circuit of one step drawn gate by gate, with the counts returned by the backend.](https://raw.githubusercontent.com/inaki-bermeo/Optogenetic-Quantum-Brain-/main/docs/card/panel2.png)
 
 - The exact `QuantumCircuit` of any step, or of the next laser shot before it runs, drawn instantly.
 - **All gates** shows the laser, every `RXX`·`RYY` hop of the Trotter decomposition and the measurements. **Compact** shows the same evolution as one `e^(−iτH)` block.
-- The counts returned by the backend, and the shot the cascade picked at random.
-- Qiskit's own `draw("mpl")` figure and `plot_histogram` (matplotlib loads the first time you open this panel, about 30 s).
+- It also shows the counts returned by the backend and the shot the cascade picked at random.
+- Qiskit's own `draw("mpl")` figure and `plot_histogram` appear too. matplotlib loads the first time you open the inspector, which takes about 30 s.
 
 ---
 
@@ -111,7 +130,7 @@ $$
 
 **In plain words.** The light pulse rotates the qubit of the illuminated neuron from "rest" towards "active". A full dose (θ = π) always fires it. Half the dose (θ = π/2) fires it in half of the shots. If it does not fire, the measurement finds no excitation and the cascade stops.
 
-**Where:** $\theta$ is the light dose (the **θ** slider). In a real experiment it is the light intensity times the pulse length. The laser dose applies to the first circuit; in later steps the neuron that fired starts fully excited.
+**Where:** $\theta$ is the light dose: how far you charge the laser, or the dose slider in the settings menu. In a real experiment it is the light intensity times the pulse length. The laser dose applies to the first circuit; in later steps the neuron that fired starts fully excited.
 
 ### 3. The synapses are an XY Hamiltonian
 
@@ -122,7 +141,7 @@ $$
 
 **In plain words.** Each synapse can pass the excitation from one neuron to the other: σ⁻ takes it away from one neuron and σ⁺ puts it on the other. The excitation is never created or destroyed, only moved. That conservation law is what makes the error mitigation in step 7 possible.
 
-**Where:** $X, Y$ are Pauli gates on each qubit; $\sigma^+, \sigma^-$ raise and lower a qubit; $\gamma$ is the strength of every synapse (**Coupling γ** in Lab settings; doubling it makes everything twice as fast).
+**Where:** $X, Y$ are Pauli gates on each qubit; $\sigma^+, \sigma^-$ raise and lower a qubit; $\gamma$ is the strength of every synapse (**Coupling γ** in the settings menu; doubling it makes everything twice as fast).
 
 ### 4. The quantum walk and the central result
 
@@ -196,19 +215,23 @@ It also walks through the real steps needed to take the physics to hardware: Tro
 
 ## Accessibility
 
-- Every control has a label, and a **?** next to each technical term explains it in plain words.
-- A live narration over the worm and screen-reader announcements describe each step.
-- Every chart has a data table behind it.
-- The page respects *prefers-reduced-motion*.
+- **The intro** is a modal dialog: focus starts on *Press start*, the page behind it is inactive, and **Esc** skips it.
+- **The game works without holding anything.** Tap or **Enter** fires at the dose set in the menu, and the dose slider stays available there.
+- **Every control has a label,** and a **?** next to each technical term explains it in plain words.
+- **Screen readers** get a live mission log and announcements for each step and achievement.
+- **Every chart** has a data table behind it.
+- **Contrast:** all text is at least 5.5:1 against the background.
+- ***prefers-reduced-motion*** turns off the intro animations, camera flights, glitches and sweeps.
 
-| Key | Where | Action |
-| --- | --- | --- |
-| ← / → · Home / End | Panel tabs | Switch panels |
-| Enter | Worm, or the neuron name field | Fire the laser |
-| R | Worm | Reset the view |
-| + / − | Worm | Zoom |
-| ↑ / ↓ | Worm | Rotate the view |
-| Esc | Anywhere | Close help and Lab settings |
+| Key | Action |
+| --- | --- |
+| Space (hold) | Charge the laser; release to fire |
+| Enter | Fire at the menu dose (on the fire button or the worm) |
+| C | Open / close the circuit inspector |
+| Esc | Skip the intro · close help, inspector or menu · open the settings menu |
+| R | Reset the view (focus on the worm) |
+| + / − | Zoom (focus on the worm) |
+| ↑ / ↓ | Rotate the view (focus on the worm) |
 
 ## Replicate and extend
 

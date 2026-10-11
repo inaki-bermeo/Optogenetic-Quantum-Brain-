@@ -98,10 +98,10 @@ Con ruido aparecen shots con 0 o con 2+ excitaciones. Se aplica la misma post-se
   - `circuito_paso`: `RX(θ)` (o `X` si θ = π) en el centro + `PauliEvolutionGate` con `SuzukiTrotter(order=2)`; si esa API no existe (imitación local), RXX/RYY equivalentes;
   - `circuito_de` / `_transpilado`: el circuito y su versión transpilada quedan en caché por (centro, θ, τ, γ, pasos[, backend]), así un centro repetido no se reconstruye ni se vuelve a transpilar;
   - `ejecutar_paso`: un job por paso, post-selección (`analisis.contar_spikes`), spike de un shot válido al azar; si el shot es vacío, la neurona no disparó.
-- **API** (`cerebro_q/api.py`): `paso_json` (un paso en el backend), `circuito_json` (el circuito sin ejecutarlo, para el panel 2) y `figuras_json` (`draw("mpl")` + histograma).
-- **Página** (`frontend/main.js`, panel 1 *Laser & measure*):
-  - el láser θ sólo actúa en el primer paso; después la neurona que disparó empieza excitada (θ = π);
+- **API** (`cerebro_q/api.py`): `paso_json` (un paso en el backend), `circuito_json` (el circuito sin ejecutarlo, para el inspector) y `figuras_json` (`draw("mpl")` + histograma).
+- **Página** (`frontend/main.js`, el HUD):
+  - el láser θ (la carga del disparo, o la dosis del menú con un toque) sólo actúa en el primer paso; después la neurona que disparó empieza excitada (θ = π);
   - pasos de Trotter: 1 si τ ≤ 4,5, 2 si τ ≤ 9 y 3 por encima;
   - por paso: superposición y colapso animados en 3D y con sonido, chips (qubits, compuertas 2q tras transpilar, shots válidos, vacíos, spike), barras de teoría vs. medido con su tabla, y la lista "Spike chain";
-  - panel 2 *The Qiskit circuit*: el circuito de cualquier paso compuerta por compuerta, los conteos y la figura de Qiskit (matplotlib se carga al abrir el panel).
+  - inspector del circuito (tecla C): el circuito de cualquier paso compuerta por compuerta, los conteos y la figura de Qiskit (matplotlib se carga al abrirlo).
 - **IonQ:** un solo paso (un job por Run); el botón se bloquea después. En hardware, pide confirmación con un segundo clic.

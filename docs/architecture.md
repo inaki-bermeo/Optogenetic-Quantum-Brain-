@@ -24,14 +24,19 @@ The app is one web page that runs entirely in the browser inside Qollab. There i
 
 ```
 frontend/
-  index.html        intro dialog, top bar, Lab settings drawer, panel 1 (Laser & measure), panel 2 (The Qiskit circuit)
-  main.js           page state and UI: the cascade loop (fire), narration, charts, circuit panel, help, intro, sound wiring
-  main.css          styles (the only CSS Qollab loads)
+  index.html        intro (boot / title / briefing), HUD over the 3D stage (stats bar, mission log, scanner, control
+                    deck), settings menu (Esc), circuit inspector (C)
+  main.js           page state and UI: the cascade loop (fire), hold-to-charge wiring, HUD stats and achievements,
+                    narration, charts, circuit inspector, help, keyboard, sound wiring
+  main.css          the HUD design system (tokens, Geist fonts embedded as base64, panels, intro); the only CSS Qollab loads
+  js/intro.js       Intro: boot console fed by init(), title + PRESS START, three beats on the real AVM circuit, skip/replay
+  js/juego.js       game layer: Carga (hold to charge θ), Juego (stats, achievements that each explain one physics fact)
   js/escena.js      WormScene: three.js scene, worm body shader + swim wave, neurons (InstancedMesh), synapses
                     (LineSegments), laser, collapse animation, picking, render-on-demand loop
   js/graficos.js    groupedBars + dataTable (accessible SVG bar chart with its data table), esc()
   js/python.js      the Pyodide bridge (py.conectoma, py.paso, py.circuito, py.figuras, ...)
-  js/sonido.js      Sonido: laser chirp, superposition tones, collapse, per-neuron pentatonic note, ambient music
+  js/sonido.js      Sonido: laser chirp, superposition tones, collapse, per-neuron pentatonic note, ambient music,
+                    UI sounds (tick, select, confirm, start whoosh), charge riser, achievement chime
 backend/
   cerebro_q/api.py        the 7 functions JS calls (all return JSON text)
   cerebro_q/datos.py      loads neurons.json, the Cook 2019 edge list and gusano.glb; synapse counts
@@ -59,7 +64,15 @@ The physics behind each module is in [theory.md](theory.md) (Spanish). The casca
 | `paso(backend, p)` | `paso_json` | one cascade step: window, counts, measured vs. theory, spike, valid/empty fractions, gate counts |
 | `circuito(p)` | `circuito_json` | the step circuit without running it: compact and expanded instruction lists, ideal distribution |
 | `figuras(p)` | `figuras_json` | `draw("mpl")` circuit and histogram as SVG data URIs |
-| `precargarFiguras()` | `precargar_figuras` | loads matplotlib (≈30 s the first time); called when panel 2 is first opened |
+| `precargarFiguras()` | `precargar_figuras` | loads matplotlib (≈30 s the first time); called when the inspector is first opened |
+
+`python.js` runs one Python call at a time with two queues. Quick calls (steps, circuits, startup) always go before
+pending slow ones (`figuras_json`, `precargar_figuras`), so the inspector never waits behind a matplotlib drawing that
+hasn't started yet.
+
+## Keyboard
+
+Space (hold) charges, Enter fires, C toggles the inspector, Esc skips the intro or closes help, the inspector and the menu (with nothing open it opens the menu). On the worm: R resets the view, +/− zoom, ↑/↓ rotate.
 
 ## One cascade step
 
@@ -82,12 +95,32 @@ sequenceDiagram
 
 The laser angle θ applies only to the first step. Later steps start with the neuron that fired fully excited (θ = π).
 
+## Design system (sci-fi lab HUD)
+
+- **One colour per meaning.** `--q` cyan is quantum: superposition, theory bars and the window rings. `--spike` orange is measured: the spike, the laser charge, measured bars and the trail. `--warn` yellow is real hardware (credits). Neuron types keep teal, violet and amber.
+- **Type.** Geist for display text (uppercase, tight tracking) and Geist Mono for the HUD (labels, tabular numbers). Both are OFL and embedded by `tools/embed_fonts.py`.
+- **Shapes.** Thin hairline panels with cyan corner brackets, and a chamfered fire button. No rounded cards and no glass blur.
+- **Motion.** Only `transform` and `opacity`, with one easing `cubic-bezier(.2,.8,.2,1)`. Pieces:
+  - the HUD slides in after the intro;
+  - stats bump when they change;
+  - achievements drop in;
+  - a one-shot scanline sweep plays on each collapse.
+
+  `prefers-reduced-motion` disables all of it.
+- **Texture.** A static SVG grain and a vignette over the canvas. They are not animated.
+
+## Game layer
+
+- **Hold to charge.** The charge is the laser dose θ, rising from 0 to π with an ease-out. The meter shows the fire chance sin²(θ/2), and that θ goes into the first circuit's `RX(θ)`. A tap or Enter uses the dose set in the menu.
+- **Stats.** Steps, jumps, the current streak, and the neurons that actually fired (out of 302).
+- **Achievements.** Triggered from fields already in each step result (`salto`, `spike`, `motivo_fin`, `spike_vecina`). Each one states the physics it illustrates. Nothing is scored that the physics doesn't say.
+
 ## Performance design
 
-- **The render loop runs only when the canvas can be seen.** It stops behind the intro screen, while panel 2 is open, when the canvas is scrolled off-screen (IntersectionObserver) and when the tab is hidden. Otherwise a frame is drawn only when something changed. The idle swim wave is capped at 30 fps.
+- **The render loop runs only when the canvas can be seen.** It stops during the boot console, while the inspector is open, when the canvas is scrolled off-screen (IntersectionObserver) and when the tab is hidden. Otherwise a frame is drawn only when something changed. The idle swim wave is capped at 30 fps.
 - **One draw call each** for the 302 neurons (`InstancedMesh`) and the synapses (`LineSegments`). Colours come from a precomputed lookup table. The swim runs in the vertex shader. Picking projects 302 points; there is no raycasting.
 - **Python caches** the connectome, J, the windows, and each step circuit plus its transpiled version.
-- **matplotlib is loaded only if panel 2 is opened.** The JS-drawn circuit appears instantly in the meantime.
+- **matplotlib is loaded only if the inspector is opened.** The JS-drawn circuit appears instantly in the meantime.
 - **Audio** is suspended while the tab is hidden or the sound is off.
 - **The body file** is 316 KB: no normals (the page recomputes them) and 16-bit indices (`tools/optimize_glb.py`).
 
