@@ -58,6 +58,7 @@ This effort is supported by Qollab & IonQ.
   - *Misfire*: θ < π and no neuron fired;
   - *Long range*: the spike landed two synapses away.
 - **The worm** looks like a fluorescence micrograph: a translucent body with cuticle rings, the pharynx and the intestine inside, and a slow swimming wave that pauses while each circuit is measured.
+- **The worm acts.** When the measured neuron has a known role in the real animal, the worm acts it out before the next step: AVA backs it up, AVB drives it forward, ASH triggers an escape with an omega turn, MC pumps the pharynx, HSN lays an egg, RIS makes it stop. A chip and the "Worm behaviour" box in the scanner name the behaviour and its references. Neurons with no known direct effect leave the worm still (see step 8).
 - **Sound** (toggle in the top bar):
   - the laser charges with a rising tone and fires with a falling chirp;
   - the superposition is ten slightly detuned tones that glide into the note of the measured neuron, so every cascade plays its own pentatonic melody;
@@ -191,6 +192,34 @@ The window is the neuron that fired plus its 9 neighbours with the most synapses
 
 **In plain words.** One laser means at most one excitation, and step 3 says the count is conserved. A noise-free shot can therefore never show two neurons at 1. Noisy shots that break this rule are discarded and the rest are renormalized. This is called **symmetry post-selection**, and IonQ recommends it in its best-practices guide. The page shows how many shots were valid in each step.
 
+### 8. From spike to behaviour
+
+**In plain words.** The cascade is our quantum model. What the worm then does is real biology: each neuron class is mapped to what experiments saw when those neurons were switched on with light or removed.
+
+| Neurons | What the real worm does | References |
+| --- | --- | --- |
+| AVA, AVD, AVE; head touch ALM, AVM | backs up (reversal) | Chalfie 1985; Zheng 1999; Stirman 2011; Leifer 2011 |
+| AVB, PVC; tail touch PLM | goes forward | Chalfie 1985; Zheng 1999 |
+| ASH (noxious stimuli) | escape: reversal, then an omega turn | Kaplan & Horvitz 1993; Hilliard 2005 |
+| RIV, SMDV | deep ventral (omega) turn | Gray 2005 |
+| RMD, SMB, RME, SMDD | head bend | Gray 2005 |
+| A-type (DA, VA, AS) and B-type (DB, VB) motor neurons | local body bend, part of the backward or forward circuit | Haspel 2010 |
+| DD, VD (GABA) | local muscle relaxation | McIntire 1993; Liewald 2008 |
+| MC, M2–M4; NSM | pharynx pumping; NSM also slows the worm down | Avery & Horvitz 1989; Raizen 1995; Sawin 2000 |
+| HSN, VC | egg laying | Desai 1988; Schafer 2005 |
+| RIS | sleep-like stop | Turek 2013, 2016 |
+| AIB, AIY, AIZ | tendencies: reverse, keep going, turn | Gray 2005; Gordus 2015; Li 2014 |
+
+**How it plays.** A single forward/backward drive adds each neuron's push and fades between steps, so AVA and AVB cancel each other like the real circuits that inhibit each other. The body wave runs tail → head when the worm backs up, as in real reversals.
+
+**What is simplified.**
+- Real *C. elegans* neurons are classical, and most do not even spike (AWA is an exception).
+- Behaviour comes from whole circuits, so one neuron is a simplification.
+- Local motor bends are placed where the cell body sits.
+- 172 of the 302 neurons have no known direct effect on movement, so they leave the worm still, on purpose.
+
+Full table and references: [docs/behaviour.md](https://github.com/inaki-bermeo/Optogenetic-Quantum-Brain-/blob/main/docs/behaviour.md).
+
 ---
 
 ## What problem it explores
@@ -266,12 +295,14 @@ It also walks through the real steps needed to take the physics to hardware: Tro
   - the measurement-driven spike cascade on 10-qubit windows;
   - the two-panel interface with the gate-by-gate circuit view;
   - the microscope-style worm, live sound and music;
+  - the worm acting out the behaviour of each measured neuron;
   - accessibility.
 - **Data:**
   - connectome from Cook et al., *Nature* 571, 63 (2019), via OpenWorm c302;
   - neuron positions from OpenWorm CElegansNeuroML;
   - touch reflex circuit from Chalfie et al. (1985);
-  - optogenetics in *C. elegans*: Nagel et al. (2005).
+  - optogenetics in *C. elegans*: Nagel et al. (2005);
+  - neuron → behaviour table from lesion and optogenetics studies (Chalfie 1985, Gray 2005, Haspel 2010, Leifer 2011, Stirman 2011 and others, listed in `docs/behaviour.md`).
 - **Sound:** synthesised live with the Web Audio API, adapted from the team's own DSP engine.
 - **Libraries:** Qiskit, NumPy, SciPy, matplotlib and three.js.
 
@@ -286,7 +317,7 @@ frontend/      the page: index.html, main.js, main.css, js/ (3D scene, charts, P
 backend/       cerebro_q/ (Python core run in the browser), data/ (connectome, neuron positions, 3D body), requirements.txt
 tests/         backend/ unit tests, e2e/ browser smoke test
 tools/         build_qollab.py, dev_server.py (local Qollab harness), optimize_glb.py, zeno_analysis.py
-docs/          architecture, development, cascade design, theory (Spanish), 3D model, LaTeX notes, card screenshots
+docs/          architecture, development, cascade design, neuron → behaviour, theory (Spanish), 3D model, LaTeX notes, card screenshots
 ```
 
 Quick start: `python tools/dev_server.py` → http://127.0.0.1:8765, and `python -m unittest discover -s tests/backend`. Details in [docs/development.md](docs/development.md).

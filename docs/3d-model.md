@@ -19,4 +19,5 @@ Datos, app y Blender usan el mismo marco de referencia, así que un modelo edita
 ## Anatomía
 
 - **Cuerpo:** sigue la línea media de las neuronas, de modo que la postura (curvatura) es la del modelo de OpenWorm. Tiene la nariz redondeada, la cola en punta y anillos de cutícula sutiles. El radio es la mayor de dos cantidades: un perfil anatómico típico (máximo de unos 40 µm) o el radio necesario para contener los somas. Con esto, 301 de 302 somas quedan dentro del cuerpo.
+- **Orientación:** en la escena, Y es el eje dorsoventral y **ventral = −Y** (los somas del cordón ventral, VA y DA, tienen z medio de −21 µm frente a +19,5 µm del total). La onda de nado y las conductas (`docs/behaviour.md`) deforman el cuerpo en este plano, como el gusano real, que se dobla dorsoventralmente.
 - **Faringe:** es una aproximación de proporciones. Ocupa el primer 16 % del largo, con el metacorpus al 45 % y el bulbo terminal al 88 %. Sirve para orientar visualmente la cabeza; no es un dato del conectoma.

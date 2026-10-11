@@ -27,12 +27,15 @@ frontend/
   index.html        intro (boot / title / briefing), HUD over the 3D stage (stats bar, mission log, scanner, control
                     deck), settings menu (Esc), circuit inspector (C)
   main.js           page state and UI: the cascade loop (fire), hold-to-charge wiring, HUD stats and achievements,
-                    narration, charts, circuit inspector, help, keyboard, sound wiring
+                    narration, charts, circuit inspector, help, keyboard, sound wiring, the behaviour chip and
+                    the "Worm behaviour" box in the scanner
   main.css          the HUD design system (tokens, Geist fonts embedded as base64, panels, intro); the only CSS Qollab loads
   js/intro.js       Intro: boot console fed by init(), title + PRESS START, three beats on the real AVM circuit, skip/replay
   js/juego.js       game layer: Carga (hold to charge θ), Juego (stats, achievements that each explain one physics fact)
-  js/escena.js      WormScene: three.js scene, worm body shader + swim wave, neurons (InstancedMesh), synapses
-                    (LineSegments), laser, collapse animation, picking, render-on-demand loop
+  js/conducta.js    neuron class → behaviour table (with references) and the forward/backward Motor drive
+  js/escena.js      WormScene: three.js scene, worm body shader + swim wave, behaviour motions (actuar), neurons
+                    (InstancedMesh), synapses (LineSegments), laser, collapse animation, camera flights, picking,
+                    render-on-demand loop
   js/graficos.js    groupedBars + dataTable (accessible SVG bar chart with its data table), esc()
   js/python.js      the Pyodide bridge (py.conectoma, py.paso, py.circuito, py.figuras, ...)
   js/sonido.js      Sonido: laser chirp, superposition tones, collapse, per-neuron pentatonic note, ambient music,
@@ -91,9 +94,12 @@ sequenceDiagram
   Py-->>UI: JSON (window, measured, theory, spike, …)
   UI->>S: superposition → collapse animation + sound
   UI->>UI: charts, spike chain, narration; next centre = spike
+  UI->>S: Motor.aplicar(spike) → scene.actuar(event): the worm acts out the neuron's behaviour, back to rest
 ```
 
 The laser angle θ applies only to the first step. Later steps start with the neuron that fired fully excited (θ = π).
+
+If the measured neuron has a known behaviour (`js/conducta.js`), the next step waits until the worm has acted it out and returned to rest, because the collapse animation needs the neurons at their real positions. The table, the motions and the caveats are in [behaviour.md](behaviour.md).
 
 ## Design system (sci-fi lab HUD)
 
@@ -118,7 +124,7 @@ The laser angle θ applies only to the first step. Later steps start with the ne
 ## Performance design
 
 - **The render loop runs only when the canvas can be seen.** It stops during the boot console, while the inspector is open, when the canvas is scrolled off-screen (IntersectionObserver) and when the tab is hidden. Otherwise a frame is drawn only when something changed. The idle swim wave is capped at 30 fps.
-- **One draw call each** for the 302 neurons (`InstancedMesh`) and the synapses (`LineSegments`). Colours come from a precomputed lookup table. The swim runs in the vertex shader. Picking projects 302 points; there is no raycasting.
+- **One draw call each** for the 302 neurons (`InstancedMesh`) and the synapses (`LineSegments`). Colours come from a precomputed lookup table. The swim and the behaviour motions run in the vertex shader (`wormDeform`); `WormScene.deform()` repeats the same math in JS for picking, labels and camera flights. Picking projects 302 points; there is no raycasting.
 - **Python caches** the connectome, J, the windows, and each step circuit plus its transpiled version.
 - **matplotlib is loaded only if the inspector is opened.** The JS-drawn circuit appears instantly in the meantime.
 - **Audio** is suspended while the tab is hidden or the sound is off.
