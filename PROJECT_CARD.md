@@ -172,7 +172,7 @@ One laser means at most one excitation, and $H$ conserves it. A noise-free shot 
 \rho \;\longrightarrow\; \frac{\Pi_{\le 1}\,\rho\,\Pi_{\le 1}}{\text{Tr}\left(\Pi_{\le 1}\,\rho\right)}
 ```
 
-where $\Pi_{\le 1}$ projects onto the bitstrings with at most one 1. The page shows the share of valid shots of each step. In an earlier prototype that simulated Forte-like noise on a 6-neuron circuit, this step lowered the total variation distance (TVD) to the ideal distribution from 0.17 to 0.05.
+where $\Pi_{\le 1}$ projects onto the bitstrings with at most one 1. The page shows the share of valid shots of each step. In an earlier prototype that simulated Forte-like noise on a 6-neuron circuit.
 
 ---
 
