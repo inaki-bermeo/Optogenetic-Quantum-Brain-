@@ -6,7 +6,7 @@ This effort is supported by Qollab & IonQ.
 
 🎬 **Demo video (2–3 min):** [add the public link] · 💻 **Code (MIT):** https://github.com/JoaquinQu/Cerebro-Cu-ntico-Optogenetico · 📖 **Full theory (Spanish):** [docs/theory.md](https://github.com/inaki-bermeo/Optogenetic-Quantum-Brain-/blob/main/docs/theory.md)
 
-![Title screen: "Optogenetic Quantum Brain" in large type over the live 3D worm, with a Press start prompt.](https://raw.githubusercontent.com/inaki-bermeo/Optogenetic-Quantum-Brain-/main/docs/card/hero.png)
+![Title screen: "Optogenetic Quantum Brain" in large type over the live 3D worm, with a Press start prompt.](https://raw.githubusercontent.com/inaki-bermeo/Optogenetic-Quantum-Brain-/main/docs/card/hero.jpg)
 
 ---
 
@@ -32,7 +32,7 @@ This effort is supported by Qollab & IonQ.
 
 ### The intro
 
-![Briefing beat 03 · Collapse: the camera close on the worm, an orange ring where the measured neuron fires, and the caption explaining the measurement.](https://raw.githubusercontent.com/inaki-bermeo/Optogenetic-Quantum-Brain-/main/docs/card/intro.png)
+![Briefing beat 03 · Collapse: the camera close on the worm, an orange ring where the measured neuron fires, and the caption explaining the measurement.](https://raw.githubusercontent.com/inaki-bermeo/Optogenetic-Quantum-Brain-/main/docs/card/intro.jpg)
 
 - **Boot.** A console types each real loading stage as it completes: the Python core, the connectome, the body mesh and the backend.
 - **Title.** The live worm orbits slowly behind the title.
@@ -44,7 +44,7 @@ This effort is supported by Qollab & IonQ.
 
 ### The lab HUD
 
-![The HUD mid-cascade: stats bar, mission log, the 3D worm with the measured window lit, the scanner with the step's circuit and theory-vs-measured bars, and the control deck.](https://raw.githubusercontent.com/inaki-bermeo/Optogenetic-Quantum-Brain-/main/docs/card/panel1.png)
+![The HUD mid-cascade: stats bar, mission log, the 3D worm with the measured window lit, the scanner with the step's circuit and theory-vs-measured bars, and the control deck.](https://raw.githubusercontent.com/inaki-bermeo/Optogenetic-Quantum-Brain-/main/docs/card/panel1.jpg)
 
 - **Colour code.** Cyan means quantum (superposition, theory). Orange means measured (the spike, the laser). Yellow means real hardware.
 - **One circuit per step.** Each step builds a 10-qubit circuit around the neuron that just fired, runs it as one job, and measures all 10 qubits. One valid shot is picked at random, and the neuron that came out as 1 fires the next step.
@@ -65,7 +65,7 @@ This effort is supported by Qollab & IonQ.
 
 ### The circuit inspector (C)
 
-![The circuit inspector: the full circuit of one step drawn gate by gate, with the counts returned by the backend.](https://raw.githubusercontent.com/inaki-bermeo/Optogenetic-Quantum-Brain-/main/docs/card/panel2.png)
+![The circuit inspector: the full circuit of one step drawn gate by gate, with the counts returned by the backend.](https://raw.githubusercontent.com/inaki-bermeo/Optogenetic-Quantum-Brain-/main/docs/card/panel2.jpg)
 
 - The exact `QuantumCircuit` of any step, or of the next laser shot before it runs, drawn instantly.
 - **All gates** shows the laser, every `RXX`·`RYY` hop of the Trotter decomposition and the measurements. **Compact** shows the same evolution as one `e^(−iτH)` block.
