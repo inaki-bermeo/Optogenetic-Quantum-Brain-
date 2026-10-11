@@ -98,7 +98,7 @@ This is an analogy built on the real wiring diagram. We do **not** claim that re
 
 ## Where the wiring comes from
 
-The neurons and synapses are the real ones, not a toy network. Every neuron name in the app is an identified cell of the worm, every line drawn is a synapse that was seen under the microscope, and every position is where that cell body sits in the animal.
+The neurons and synapses are the real ones, not a toy network. Every neuron name in the app is an identified cell of the worm, every line drawn is a synapse that was seen under the microscope, and every position is where that cell body sits in the animal. Lines run inside the body, along the ventral nerve cord like the worm's long axons, so they bend with the worm and leave the organs visible; that path is schematic, not each axon's real route.
 
 - **The map.** Cook, S. J. et al. (2019). *Whole-animal connectomes of both* Caenorhabditis elegans *sexes.* Nature 571, 63–71. https://doi.org/10.1038/s41586-019-1352-7. The authors reconstructed the whole nervous system from serial-section **electron micrographs**: thousands of ultra-thin slices of the worm, imaged one by one, with every chemical synapse and gap junction traced and counted. The data is published at https://wormwiring.org.
 - **The original map** it builds on: White, J. G. et al. (1986). *The structure of the nervous system of the nematode* C. elegans. Phil. Trans. R. Soc. B 314, 1–340. https://doi.org/10.1098/rstb.1986.0056. This was the first complete wiring diagram of any animal.
@@ -213,7 +213,7 @@ The window is the neuron that fired plus its 9 neighbours with the most synapses
 | ASH (noxious stimuli) | escape: reversal, then an omega turn | Kaplan & Horvitz 1993; Hilliard 2005 |
 | RIV, SMDV | deep ventral (omega) turn | Gray 2005 |
 | RMD, SMB, RME, SMDD | head bend | Gray 2005 |
-| A-type (DA, VA, AS) and B-type (DB, VB) motor neurons | local body bend, part of the backward or forward circuit | Haspel 2010 |
+| A-type (DA, VA, AS) and B-type (DB, VB) motor neurons | local body bend, part of the backward or forward circuit; the bends of a cascade add up into a posture that fades in about half a minute | Haspel 2010 |
 | DD, VD (GABA) | local muscle relaxation | McIntire 1993; Liewald 2008 |
 | MC, M2–M4; NSM | pharynx pumping; NSM also slows the worm down | Avery & Horvitz 1989; Raizen 1995; Sawin 2000 |
 | HSN, VC | egg laying | Desai 1988; Schafer 2005 |

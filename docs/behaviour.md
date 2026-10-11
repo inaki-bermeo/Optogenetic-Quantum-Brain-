@@ -66,8 +66,12 @@ Patterns match whole names, so `AS\d+` (motor neurons AS1–AS11) never matches 
   - `omega`: a uniform ventral curvature of about 290° in total curls the body into a loop.
   - `cabeza`: oscillating curvature in the front 22 % of the body.
   - `flexion`: a Gaussian curvature bump at the neuron's position (about 0.75 rad of turn), dorsal for D*/AS, ventral
-    for V*: one side's muscles contract and the body bends there.
-  - `relajar`: the wave curvature drops around the neuron's position (that segment goes limp).
+    for V*: one side's muscles contract and the body bends there. **Posture memory:** 75 % of the bend stays after
+    the gesture (about 0.56 rad, 32°), so the bends of a cascade add up into a posture, dorsal and ventral ones cancel,
+    and the whole posture fades with a time constant of 25 s. A qualitative stand-in for muscle tone that outlasts a
+    single command, not a measured value.
+  - `relajar`: the wave curvature drops around the neuron's position (that segment goes limp), and the posture
+    remembered there is erased.
   - `bombeo`: the pharynx pulses about 4 times per second (real pumping reaches about 250 per minute).
   - `puesta`: a small ventral bend at the vulva and an egg (about 55 × 35 µm) leaving the body, next to the embryos
     already waiting in the uterus.
