@@ -149,6 +149,7 @@ class TestCascada(unittest.TestCase):
         self.assertIn(r["spike"], r["ventana"])
         self.assertAlmostEqual(sum(r["medida"]), 1.0, places=6)
         self.assertAlmostEqual(r["fraccion_valida"], 1.0, places=6)  # backend ideal
+        self.assertIn("spike_vecina", r)
         self.assertLess(referencia.tvd(r["medida"], r["teoria_ventana"]), 0.15)
 
     def test_paso_sin_disparo(self):

@@ -14,19 +14,31 @@ const texto = (r) => {
 /** Deja que el navegador pinte (p. ej. "Calculando…") antes de un cálculo largo en Python. */
 export const respirar = () => new Promise((ok) => requestAnimationFrame(() => setTimeout(ok, 0)));
 
-// Las llamadas a Python van de a una (Pyodide no corre dos funciones a la vez): así la precarga
-// de matplotlib en segundo plano nunca se mezcla con un job de la cascada.
-let cola = Promise.resolve();
-function enCola(tarea) {
-  const r = cola.then(tarea, tarea);
-  cola = r.catch(() => {});
-  return r;
+// Las llamadas a Python van de a una (Pyodide no corre dos funciones a la vez). Hay dos colas:
+// las llamadas rápidas (jobs de la cascada, el circuito de un paso) siempre pasan antes que las
+// lentas que esperan (matplotlib: precarga y figuras, decenas de segundos), así cambiar de paso en
+// el inspector no espera a que termine un dibujo. Lo que ya está corriendo no se interrumpe.
+const colas = { alta: [], baja: [] };
+let ocupado = false;
+function enCola(tarea, { lenta = false } = {}) {
+  return new Promise((ok, mal) => {
+    colas[lenta ? "baja" : "alta"].push({ tarea, ok, mal });
+    atender();
+  });
+}
+async function atender() {
+  if (ocupado) return;
+  const t = colas.alta.shift() ?? colas.baja.shift();
+  if (!t) return;
+  ocupado = true;
+  try { t.ok(await t.tarea()); } catch (e) { t.mal(e); } finally { ocupado = false; atender(); }
 }
 
+const LENTAS = new Set(["figuras_json", "precargar_figuras"]);
 async function llamar(nombre, ...args) {
   const fn = api[nombre];
   if (!fn) throw new Error(`cerebro_q.api.${nombre} does not exist`);
-  return enCola(async () => JSON.parse(texto(await fn.callPromising(...args))));
+  return enCola(async () => JSON.parse(texto(await fn.callPromising(...args))), { lenta: LENTAS.has(nombre) });
 }
 
 export const py = {

@@ -3,67 +3,180 @@
 <script type="module" src="main.js"></script>
 </head>
 <body>
-<!-- Pantalla de inicio: un diálogo modal; la página queda inerte hasta entrar (main.js) -->
-<div id="intro-screen" class="intro-screen" role="dialog" aria-modal="true" aria-labelledby="intro-title"
-     aria-describedby="intro-text" lang="en">
-  <div class="intro-content">
-    <h2 class="intro-title" id="intro-title">Optogenetic Quantum Brain</h2>
-    <div class="intro-text" id="intro-text">
-      <p><strong>What if a brain followed the rules of quantum mechanics?</strong></p>
-      <p>In optogenetics, scientists shine light on a single neuron to make it fire, and watch the signal travel
-        through the brain. Here we reimagine that experiment with <strong>real quantum computing (Qiskit &amp; IonQ)</strong>.</p>
-      <p>When the laser hits, the signal does not pick one path. It becomes a wave of probability that spreads over
-        the neuron and its closest neighbours <strong>all at once</strong>. Paths add up and make some neurons glow, or
-        cancel out and leave others dark, even right next door: that is interference.</p>
-      <p>Then the circuit is measured and the wave collapses onto a single neuron, which fires the next step.
-        Listen to the sound of probability collapsing, and see how observing the system changes what happens.</p>
-      <p class="intro-source">The wiring is real: the 302 neurons of the worm <em>C. elegans</em> and their synapses,
-        mapped synapse by synapse with an electron microscope (Cook et al., <em>Nature</em> 2019).</p>
-    </div>
-    <button type="button" id="intro-enter-btn" class="btn primary intro-btn">
-      <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M7 5l12 7-12 7z" fill="currentColor"/></svg>
-      Start the simulation
-    </button>
+<!-- Intro en fases (js/intro.js): arranque → título → 3 escenas sobre el gusano real → HUD.
+     Es un diálogo modal: la página queda inerte detrás hasta entrar. -->
+<div id="intro" class="intro" data-fase="boot" role="dialog" aria-modal="true" aria-labelledby="intro-title" lang="en">
+  <div class="intro-boot" id="intro-boot">
+    <p class="boot-head">OQB//SYS · optogenetic quantum brain</p>
+    <ol class="boot-log" id="boot-log" aria-live="polite"></ol>
+    <p class="boot-cursor" aria-hidden="true">_</p>
   </div>
+
+  <div class="intro-title-wrap" id="intro-title-wrap">
+    <p class="intro-kicker">Qiskit × IonQ · a quantum walk on a real brain</p>
+    <h2 class="intro-title" id="intro-title" data-text="Optogenetic Quantum Brain">Optogenetic Quantum Brain</h2>
+    <p class="intro-sub">Fire a laser at one of the 302 neurons of <em>C. elegans</em>. Every jump of the spike is decided by
+      measuring a real 10-qubit circuit.</p>
+    <button type="button" class="press-start" id="intro-start">Press start</button>
+    <p class="intro-source">Real wiring: every neuron and synapse mapped with an electron microscope (Cook et al., <em>Nature</em> 2019).</p>
+  </div>
+
+  <div class="intro-brief" id="intro-brief">
+    <p class="brief-num" id="brief-num" aria-hidden="true">01</p>
+    <h3 class="brief-title" id="brief-title">Light</h3>
+    <p class="brief-text" id="brief-text" aria-live="polite"></p>
+    <div class="brief-pips" aria-hidden="true"><i></i><i></i><i></i></div>
+    <button type="button" class="btn-hud primary" id="intro-next">Next ▸</button>
+  </div>
+
+  <button type="button" class="intro-skip" id="intro-skip">Skip intro <kbd>Esc</kbd></button>
 </div>
-<a class="skip-link" href="#chapters" inert>Skip to the panels</a>
+
+<a class="skip-link" href="#hud-deck" inert>Skip to the controls</a>
 
 <div class="app" id="app" lang="en" inert>
-  <header class="topbar">
-    <div class="brand">
-      <span class="brand-dot" aria-hidden="true"></span>
-      <div>
-        <h1>Optogenetic Quantum Brain</h1>
-        <p>A laser on the real <em>C. elegans</em> connectome · every step is a 10-qubit Qiskit circuit</p>
+  <div class="stage" id="stage">
+    <div class="viewport" id="viewport">
+      <canvas id="scene" tabindex="0" role="img" aria-label="3D C. elegans worm with its 302 neurons."
+              aria-describedby="scene-help"></canvas>
+      <div class="grain" aria-hidden="true"></div>
+      <div class="sweep" id="sweep" aria-hidden="true"></div>
+      <div class="tooltip" id="tooltip" aria-hidden="true"></div>
+    </div>
+
+    <!-- HUD · arriba: marca, estadísticas, acciones -->
+    <header class="hud-top">
+      <div class="hud-brand">
+        <span class="logo-mark" aria-hidden="true"></span>
+        <h1>Optogenetic <span>Quantum Brain</span></h1>
+      </div>
+      <dl class="hud-stats" id="hud-stats" aria-label="Session stats">
+        <div><dt>Step</dt><dd id="st-step">00/12</dd></div>
+        <div><dt>Jumps</dt><dd id="st-jumps">00</dd></div>
+        <div><dt>Streak</dt><dd id="st-streak">×0</dd></div>
+        <div><dt>Neurons</dt><dd id="st-neurons">000<small>/302</small></dd></div>
+      </dl>
+      <div class="hud-actions">
+        <p class="pill" id="backend-pill" role="status">loading…</p>
+        <button type="button" class="icon-hud" id="sound-btn" aria-pressed="true" aria-label="Sound on" title="Sound">
+          <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" id="sound-icon"><path d="M4 9v6h4l5 4V5L8 9H4z"/><path d="M16 8.5a5 5 0 0 1 0 7M18.5 6a8.5 8.5 0 0 1 0 12"/></svg>
+        </button>
+        <button type="button" class="icon-hud" id="lab-btn" aria-expanded="false" aria-controls="lab" aria-label="Settings menu" title="Settings (Esc)">
+          <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="3" /><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1" /></svg>
+        </button>
+      </div>
+    </header>
+
+    <!-- HUD · izquierda: bitácora (narración) y cadena de spikes -->
+    <section class="hud-panel hud-log" aria-label="Mission log">
+      <div class="narration" id="narration">
+        <p class="narr-kicker" id="narr-kicker">Standby</p>
+        <p class="narr-text" id="narr-text">Loading the worm…</p>
+      </div>
+      <details class="chain" id="chain-box">
+        <summary><span class="lbl">Spike chain</span> <span class="chain-n" id="chain-n">0</span></summary>
+        <ol class="casc-log" id="casc-log" aria-label="Spike chain"></ol>
+      </details>
+    </section>
+
+    <!-- HUD · derecha: escáner de la ventana medida -->
+    <aside class="hud-panel hud-scan" id="casc-card" aria-labelledby="h-scan">
+      <h2 class="lbl" id="h-scan">Scanner · last measurement</h2>
+      <div class="chips" id="casc-chips"><span class="chip">fire the laser to run the first circuit</span></div>
+      <figure class="mini-circ" id="mini-circ" hidden>
+        <figcaption><b>This step's circuit</b> <span id="mini-circ-cap"></span></figcaption>
+        <div id="mini-circ-svg"></div>
+      </figure>
+      <figure class="chart">
+        <div id="casc-bars"></div>
+        <figcaption class="legend-row" id="casc-legend"></figcaption>
+      </figure>
+      <details class="data-box">
+        <summary>Show the window as a table</summary>
+        <div id="casc-table"></div>
+      </details>
+      <button type="button" class="btn-hud ghost" id="inspect-btn" aria-controls="inspector">
+        Inspect the Qiskit circuit <kbd>C</kbd>
+      </button>
+    </aside>
+
+    <!-- HUD · abajo: consola de control -->
+    <section class="hud-deck" id="hud-deck" aria-label="Laser controls" tabindex="-1">
+      <div class="deck-cell deck-target">
+        <div class="field-head"><label class="lbl" for="neuron-input">Target</label>
+          <button type="button" class="help" data-help="datos" aria-label="Is this the real worm?">?</button></div>
+        <input id="neuron-input" list="neuron-list" value="AVM" autocomplete="off" spellcheck="false"
+               aria-describedby="neuron-card" />
+        <datalist id="neuron-list"></datalist>
+        <p class="neuron-card" id="neuron-card" aria-live="polite"></p>
+      </div>
+
+      <div class="deck-cell deck-dose">
+        <div class="field-head"><span class="lbl" id="dose-lbl">Laser dose θ</span>
+          <button type="button" class="help" data-help="theta" aria-label="What is θ?">?</button>
+          <b id="theta-val">π</b></div>
+        <div class="dose-meter" id="dose-meter" role="meter" aria-labelledby="dose-lbl" aria-valuemin="0" aria-valuemax="1"
+             aria-valuenow="1" aria-valuetext="fire chance 100%"><i id="dose-fill"></i></div>
+        <p class="deck-sub">Fire chance <b id="pfire">100%</b> · sin²(θ/2)</p>
+      </div>
+
+      <div class="deck-cell deck-tau">
+        <div class="field-head"><label class="lbl" for="tau">Measure every τ</label>
+          <button type="button" class="help" data-help="tau" aria-label="What is τ?">?</button>
+          <b id="tau-val">8</b></div>
+        <input type="range" id="tau" min="2" max="12" step="1" value="8" aria-describedby="tau-hint" />
+        <p class="deck-sub" id="tau-hint">Long τ: the spike travels · short τ: Zeno freeze</p>
+      </div>
+
+      <div class="deck-cell deck-fire">
+        <button type="button" class="fire-btn" id="fire-btn" aria-describedby="fire-hint">
+          <span class="fire-charge" aria-hidden="true"></span>
+          <span class="fire-txt" id="fire-label">Fire laser at AVM</span>
+        </button>
+        <div class="fire-row">
+          <p class="deck-sub" id="fire-hint">Tap: fire at dose θ · hold: charge</p>
+          <button type="button" class="btn-hud ghost stop" id="casc-stop" disabled>Stop</button>
+        </div>
+      </div>
+      <p class="deck-status" id="casc-estado" aria-live="polite">Nothing has run yet.</p>
+    </section>
+
+    <div class="hud-foot">
+      <p class="scene-help" id="scene-help">
+        <kbd>Space</kbd> hold to charge · <kbd>Enter</kbd> fire · <kbd>C</kbd> circuit · <kbd>R</kbd> reset view ·
+        <kbd>+</kbd>/<kbd>−</kbd> zoom · drag to orbit · click a neuron to target it</p>
+      <div class="legend" aria-hidden="true">
+        <span><i class="dot sensory"></i>sensory</span>
+        <span><i class="dot inter"></i>inter</span>
+        <span><i class="dot motor"></i>motor</span>
+        <span class="grad"><i></i>measured</span>
       </div>
     </div>
-    <div class="top-actions">
-      <p class="pill" id="backend-pill" role="status">loading…</p>
-      <button type="button" class="btn ghost small" id="sound-btn" aria-pressed="true" title="The laser, the superposition and each measured neuron have their own sound">
-        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" id="sound-icon"><path d="M4 9v6h4l5 4V5L8 9H4z"/><path d="M16 8.5a5 5 0 0 1 0 7M18.5 6a8.5 8.5 0 0 1 0 12"/></svg>
-        <span id="sound-label">Sound on</span>
-      </button>
-      <button type="button" class="btn ghost small" id="lab-btn" aria-expanded="false" aria-controls="lab">
-        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="3" /><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1" /></svg>
-        Lab settings
-      </button>
-    </div>
-  </header>
 
-  <!-- Lab drawer: advanced settings (floats over both panels) -->
+    <div class="achievements" id="achievements" aria-live="polite"></div>
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  </div>
+
+  <!-- Menú de ajustes (Esc) -->
   <section class="lab" id="lab" aria-labelledby="lab-title" hidden>
     <div class="lab-head">
-      <h2 id="lab-title">Lab settings</h2>
-      <button type="button" class="icon-btn" id="lab-close" aria-label="Close lab settings">
+      <h2 id="lab-title">Settings</h2>
+      <button type="button" class="icon-hud" id="lab-close" aria-label="Close settings">
         <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6 6l12 12M18 6L6 18" /></svg>
       </button>
     </div>
-    <h3 class="sub">Physics</h3>
+    <h3 class="lbl sub">Laser</h3>
+    <div class="field">
+      <div class="field-head"><label for="theta">Dose θ for a tap</label><b id="theta-val2">π</b></div>
+      <input type="range" id="theta" min="0.1" max="3.14159" step="0.01" value="3.14159" />
+      <small class="hint">Holding the fire button charges θ from 0 instead.</small>
+    </div>
+    <h3 class="lbl sub">Physics</h3>
     <div class="field">
       <div class="field-head"><label for="gamma">Coupling γ</label><button type="button" class="help" data-help="gamma" aria-label="What is γ?">?</button><b id="gamma-val">1.0</b></div>
       <input type="range" id="gamma" min="0.2" max="3" step="0.1" value="1" />
     </div>
-    <h3 class="sub">Quantum runs</h3>
+    <h3 class="lbl sub">Quantum runs</h3>
     <div class="row">
       <label class="toggle" for="casc-pasos">steps per laser shot</label>
       <input type="number" id="casc-pasos" value="12" min="1" max="60" step="1" />
@@ -72,13 +185,12 @@
       <label class="toggle" for="casc-shots">shots per circuit</label><button type="button" class="help" data-help="shots" aria-label="What are shots?">?</button>
       <input type="number" id="casc-shots" value="200" min="20" max="2000" step="20" />
     </div>
-    <h3 class="sub">Sound</h3>
+    <h3 class="lbl sub">Sound</h3>
     <div class="field">
-      <div class="field-head"><label for="music-vol">Background music (underwater ambience)</label><b id="music-vol-val">50%</b></div>
+      <div class="field-head"><label for="music-vol">Music (underwater ambience)</label><b id="music-vol-val">50%</b></div>
       <input type="range" id="music-vol" min="0" max="100" step="5" value="50" />
-      <small class="hint">It starts with your first click and drops while each circuit is measured.</small>
     </div>
-    <h3 class="sub">Display</h3>
+    <h3 class="lbl sub">Display</h3>
     <div class="row small wrap">
       <label class="toggle"><input type="checkbox" id="show-edges" checked /> synapses</label>
       <label class="toggle"><input type="checkbox" id="swim" checked /> swimming</label>
@@ -89,117 +201,23 @@
         </select>
       </label>
     </div>
+    <button type="button" class="btn-hud ghost" id="replay-intro">Replay the intro</button>
   </section>
 
-  <!-- Two panels -->
-  <nav class="chapters" id="chapters" aria-label="Panels">
-    <div role="tablist" aria-label="Panels" class="tablist two">
-      <button type="button" role="tab" id="tab-1" aria-controls="chap-1" aria-selected="true" class="tab">
-        <span class="tab-num" aria-hidden="true">1</span>
-        <span class="tab-txt"><b>Laser &amp; measure</b><small>Fire at a neuron · each step is a quantum circuit</small></span>
-      </button>
-      <button type="button" role="tab" id="tab-2" aria-controls="chap-2" aria-selected="false" tabindex="-1" class="tab">
-        <span class="tab-num" aria-hidden="true">2</span>
-        <span class="tab-txt"><b>The Qiskit circuit</b><small>Every gate of the circuit that ran</small></span>
-      </button>
+  <!-- Inspector del circuito (C) -->
+  <section class="inspector" id="inspector" role="dialog" aria-modal="true" aria-labelledby="circ-title" hidden>
+    <div class="insp-bar">
+      <p class="lbl">Circuit inspector</p>
+      <button type="button" class="btn-hud ghost" id="inspector-close">Close <kbd>Esc</kbd></button>
     </div>
-  </nav>
-
-  <!-- ===================== Panel 1 · Laser & measure ===================== -->
-  <div class="layout" id="chap-1" role="tabpanel" aria-labelledby="tab-1">
-    <div class="stage" id="stage">
-      <canvas id="scene" tabindex="0" role="img"
-              aria-label="3D C. elegans worm with its 302 neurons."
-              aria-describedby="scene-help"></canvas>
-
-      <div class="narration" id="narration">
-        <p class="narr-kicker" id="narr-kicker">Start here</p>
-        <p class="narr-text" id="narr-text">Loading the worm…</p>
-      </div>
-
-      <figure class="mini-circ" id="mini-circ" hidden>
-        <figcaption><b>This step's circuit</b> <span id="mini-circ-cap"></span></figcaption>
-        <div id="mini-circ-svg"></div>
-      </figure>
-
-      <div class="stage-foot">
-        <p class="scene-help" id="scene-help">
-          Drag to rotate · scroll to zoom · click a neuron to choose it.
-          Keyboard (focus on the worm): <kbd>Enter</kbd> fire the laser, <kbd>R</kbd> reset view, <kbd>+</kbd>/<kbd>−</kbd> zoom.
-        </p>
-        <div class="legend" aria-hidden="true">
-          <span><i class="dot sensory"></i>sensory</span>
-          <span><i class="dot inter"></i>interneuron</span>
-          <span><i class="dot motor"></i>motor</span>
-          <span class="grad"><i></i>measured</span>
-        </div>
-      </div>
-      <div class="tooltip" id="tooltip" aria-hidden="true"></div>
-      <div class="loader" id="loader" role="status"><div class="ring" aria-hidden="true"></div><p id="loader-text">Loading the connectome…</p></div>
-    </div>
-
-    <div class="side">
-      <div class="card">
-        <h2>Fire the laser</h2>
-        <p class="desc">Each step is a <b>10-qubit Qiskit circuit</b> run on the backend: the laser excites a neuron,
-          the excitation spreads as a <b>quantum walk</b> through its 9 most connected neighbours, and measuring
-          <b>collapses</b> it onto one neuron, which fires the next step.</p>
-        <div class="field">
-          <div class="field-head"><label class="lbl" for="neuron-input">Neuron to illuminate</label><button type="button" class="help" data-help="datos" aria-label="Is this the real worm?">?</button></div>
-          <input id="neuron-input" list="neuron-list" value="AVM" autocomplete="off" spellcheck="false"
-                 aria-describedby="neuron-hint neuron-card" />
-          <datalist id="neuron-list"></datalist>
-          <small class="hint" id="neuron-hint">Type a name (e.g. AVM, ASHL) or click a neuron on the worm.</small>
-        </div>
-        <p class="neuron-card" id="neuron-card" aria-live="polite"></p>
-        <div class="field">
-          <div class="field-head"><label for="theta">Light dose θ</label><button type="button" class="help" data-help="theta" aria-label="What is θ?">?</button><b id="theta-val">π</b></div>
-          <input type="range" id="theta" min="0.1" max="3.14159" step="0.01" value="3.14159" aria-describedby="pfire-hint" />
-          <small class="hint" id="pfire-hint">Chance the neuron fires: <b id="pfire">1.00</b></small>
-        </div>
-        <div class="field">
-          <div class="field-head"><label for="tau">Time between measurements τ</label><button type="button" class="help" data-help="tau" aria-label="What is τ?">?</button><b id="tau-val">8</b></div>
-          <input type="range" id="tau" min="2" max="12" step="1" value="8" aria-describedby="tau-hint" />
-          <small class="hint" id="tau-hint">Long τ: the spike travels. Short τ: measuring that often freezes it (Zeno effect).</small>
-        </div>
-        <div class="row">
-          <button type="button" class="btn primary" id="fire-btn">
-            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 2v6M12 16v6M2 12h6M16 12h6" /><circle cx="12" cy="12" r="3" /></svg>
-            <span id="fire-label">Fire laser at AVM</span>
-          </button>
-          <button type="button" class="btn ghost stop" id="casc-stop" disabled>Stop</button>
-        </div>
-        <p class="hint" id="casc-estado" aria-live="polite">Nothing has run yet.</p>
-      </div>
-
-      <div class="card cascade" id="casc-card">
-        <h3>What the circuit measured</h3>
-        <div class="chips" id="casc-chips"><span class="chip">fire the laser to run the first circuit</span></div>
-        <figure class="chart">
-          <div id="casc-bars"></div>
-          <figcaption class="legend-row" id="casc-legend"></figcaption>
-        </figure>
-        <details class="data-box">
-          <summary>Show the window as a table</summary>
-          <div id="casc-table"></div>
-        </details>
-        <h3 class="sub" id="h-chain">Spike chain</h3>
-        <ol class="casc-log" id="casc-log" aria-labelledby="h-chain"></ol>
-      </div>
-      <button type="button" class="btn next" data-goto="2">See the full Qiskit circuit →</button>
-    </div>
-  </div>
-
-  <!-- ===================== Panel 2 · The Qiskit circuit ===================== -->
-  <section class="circuit-view" id="chap-2" role="tabpanel" aria-labelledby="tab-2" hidden>
-    <div class="card circ-card">
+    <div class="hud-panel circ-card">
       <div class="circ-head">
         <div>
           <h2 id="circ-title">The Qiskit circuit</h2>
           <p class="desc" id="circ-sub">The exact <code>QuantumCircuit</code> that is sent to the backend.</p>
         </div>
         <div class="circ-controls">
-          <label class="toggle" for="circ-step">circuit</label>
+          <label class="lbl" for="circ-step">circuit</label>
           <select id="circ-step"></select>
           <fieldset class="seg" id="circ-vista">
             <legend class="sr-only">Circuit view</legend>
@@ -225,14 +243,14 @@
     </div>
 
     <div class="circ-grid">
-      <div class="card">
-        <h3 id="h-counts">Measurement results</h3>
+      <div class="hud-panel">
+        <h3 class="lbl" id="h-counts">Measurement results</h3>
         <p class="hint" id="counts-sub"></p>
         <ol class="counts" id="counts" aria-labelledby="h-counts"></ol>
       </div>
-      <div class="card mpl-card">
-        <h3>Qiskit's own drawing <span class="mono">QuantumCircuit.draw("mpl")</span></h3>
-        <p class="hint" id="fig-estado" aria-live="polite">Loads in the background.</p>
+      <div class="hud-panel mpl-card">
+        <h3 class="lbl">Qiskit's own drawing · <span class="mono">QuantumCircuit.draw("mpl")</span></h3>
+        <p class="hint" id="fig-estado" aria-live="polite">Loads when you open the inspector.</p>
         <figure class="fig-box" id="fig-box-c" hidden>
           <div class="fig-scroll"><img id="fig-circ" alt="" /></div>
           <figcaption class="hint" id="fig-circ-cap"></figcaption>
@@ -243,7 +261,6 @@
         </figure>
       </div>
     </div>
-    <button type="button" class="btn next" data-goto="1">← Back to the laser</button>
   </section>
 
   <footer class="footer">
@@ -257,8 +274,6 @@
   <div class="help-pop" id="help-pop" role="note" hidden>
     <p id="help-text"></p>
   </div>
-
   <div class="sr-only" id="sr-status" aria-live="polite"></div>
-  <div class="toast" id="toast" role="status" aria-live="polite"></div>
 </div>
 </body>

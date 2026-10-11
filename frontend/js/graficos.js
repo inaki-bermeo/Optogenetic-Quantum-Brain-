@@ -8,8 +8,8 @@ const el = (tag, attrs = {}, parent) => {
 };
 
 export const SERIES_COLORS = {
-  exact: "#ffffff",
-  backend: "#ffb347",
+  exact: "#3df0ff", // teoría = cian (cuántico)
+  backend: "#ff6a2b", // medido = naranja (spike)
 };
 
 /** Escapa texto para insertarlo en HTML. */
@@ -60,7 +60,7 @@ export function groupedBars(container, labels, series, { height = 170, max = nul
       ? { x: lx, y: ly, "text-anchor": "end", transform: `rotate(-50 ${lx} ${ly})` }
       : { x: lx, y: ly, "text-anchor": "middle" }, svg);
     t.textContent = lab;
-    t.setAttribute("fill", highlight.includes(i) ? "#ffd166" : "#8c97b5");
+    t.setAttribute("fill", highlight.includes(i) ? "#ff6a2b" : "#9aa3b5");
     t.setAttribute("font-size", "9.5");
   });
 }

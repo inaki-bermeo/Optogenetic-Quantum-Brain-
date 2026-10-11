@@ -36,7 +36,7 @@ It serves the source tree directly. Reload the page after editing JS; restart th
 
 - The unit tests run with real Qiskit when it is installed. Otherwise they use the imitation, and the figure tests are skipped.
 - `TestReglasQollab` builds the upload folder in a temp dir and checks it: file limits, the `index.html` shape, allowed JS imports, literal data paths and no API keys.
-- The smoke test closes the intro screen with the keyboard, fires a cascade, opens panel 2, and checks the IonQ one-job lock and the QPU confirmation.
+- The smoke test walks the intro by keyboard and skips it with Esc. It fires a charged shot and checks the achievement, opens the inspector with C, and checks the IonQ one-job lock, the QPU confirmation and a reduced-motion run.
 
 ## Publish to Qollab
 
@@ -55,6 +55,7 @@ Never upload `tools/`, `tests/`, `docs/` or `.venv/`.
 | --- | --- |
 | `python tools/zeno_analysis.py [--centro AVM --taus 3 5 8]` | Reproduces the τ table (how often the spike stays put, and distinct neurons visited) and the coherent / measured / window / classical comparison |
 | `python tools/optimize_glb.py [IN.glb --out OUT.glb]` | Drops normals and uses 16-bit indices in the body mesh (run after a Blender export) |
+| `python tools/embed_fonts.py` | Re-embeds Geist / Geist Mono (subset, base64) between the `FONTS:BEGIN/END` markers of `frontend/main.css`; needs `pip install fonttools brotli` |
 
 ## Conventions
 

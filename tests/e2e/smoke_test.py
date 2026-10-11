@@ -3,9 +3,14 @@
     python tools/dev_server.py &      # en otra terminal
     python tests/e2e/smoke_test.py [--url http://127.0.0.1:8765] [--salida capturas/]
 
-Comprueba que la pantalla de inicio se puede cerrar con el teclado, que el láser corre la cascada
-de circuitos en el backend, que el panel 2 dibuja el circuito y las figuras de Qiskit, y que IonQ
-queda limitado a un job por ejecución.
+Comprueba, como lo haría alguien con teclado y mouse:
+  * la intro: arranque → título (foco en PRESS START, página inerte) → 3 escenas con Enter → HUD con
+    el foco en el disparo; y que Esc la salta;
+  * el disparo con "mantener para cargar" (el medidor de dosis se carga) y la cascada de circuitos en
+    el backend, con su logro;
+  * el inspector del circuito con la tecla C (y Esc para cerrarlo), con el dibujo y los conteos;
+  * IonQ limitado a un job por ejecución, la confirmación en hardware y la versión con
+    prefers-reduced-motion.
 """
 
 import argparse
@@ -14,16 +19,37 @@ from pathlib import Path
 
 from playwright.sync_api import sync_playwright
 
+ARGS = ["--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"]
+SHOT = {"timeout": 120000}  # con WebGL por software una captura puede tardar
 
-def entrar(pag):
-    """Espera a que cargue la página y cierra la pantalla de inicio con el teclado (Enter)."""
-    pag.wait_for_selector("#loader.hide", timeout=60000)
-    if pag.locator("#intro-enter-btn").count() and pag.is_visible("#intro-enter-btn"):
-        assert pag.evaluate("document.activeElement.id") == "intro-enter-btn", "la pantalla de inicio debe tomar el foco"
-        assert pag.evaluate("document.getElementById('app').inert"), "la página debe quedar inerte detrás del inicio"
-        pag.keyboard.press("Enter")
-        pag.wait_for_selector("#intro-screen", state="hidden", timeout=20000)
-        assert not pag.evaluate("document.getElementById('app').inert")
+
+def entrar(pag, completa=False, out=None):
+    """Espera el título de la intro; con `completa` la recorre con Enter, si no la salta con Esc."""
+    pag.wait_for_function("document.getElementById('intro').dataset.fase === 'titulo'", timeout=90000)
+    assert pag.evaluate("document.activeElement.id") == "intro-start", "PRESS START debe tomar el foco"
+    assert pag.evaluate("document.getElementById('app').inert"), "la página debe quedar inerte detrás de la intro"
+    if completa:
+        if out:
+            pag.wait_for_timeout(1800)
+            pag.screenshot(path=str(out / "0_titulo.png"), **SHOT)
+        pag.keyboard.press("Enter")  # PRESS START
+        for k in range(3):  # las tres escenas: luz, superposición, colapso
+            pag.wait_for_function(f"document.getElementById('brief-num').textContent === '0{k + 1}'", timeout=20000)
+            pag.wait_for_timeout(1500)
+            if out:
+                pag.screenshot(path=str(out / f"0_escena{k + 1}.png"), **SHOT)
+            assert pag.evaluate("document.activeElement.id") == "intro-next"
+            pag.keyboard.press("Enter")
+    else:
+        pag.keyboard.press("Escape")
+    pag.wait_for_selector("#intro", state="hidden", timeout=20000)
+    assert not pag.evaluate("document.getElementById('app').inert")
+    assert pag.evaluate("document.activeElement.id") == "fire-btn", "al terminar la intro el foco va al disparo"
+
+
+def esperar_fin_cascada(pag, timeout=400000):
+    pag.wait_for_function("document.querySelector('#casc-stop').disabled && "
+                          "document.querySelectorAll('#casc-log li').length > 0", timeout=timeout)
 
 
 def main():
@@ -35,103 +61,117 @@ def main():
     out.mkdir(parents=True, exist_ok=True)
     errores = []
     with sync_playwright() as p:
-        nav = p.chromium.launch(args=["--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"])
-        pag = nav.new_page(viewport={"width": 1440, "height": 860})
+        nav = p.chromium.launch(args=ARGS)
+        pag = nav.new_page(viewport={"width": 1440, "height": 900})
         pag.on("pageerror", lambda e: errores.append(f"pageerror: {e}"))
         pag.on("console", lambda m: m.type == "error" and errores.append(f"console: {m.text}"))
 
-        # 1) backend local: arranca listo para disparar, sin ejecutar nada
+        # 1) intro completa con el teclado
         pag.goto(a.url)
-        entrar(pag)
-        assert pag.is_visible("#chap-1") and not pag.is_visible("#chap-2"), "sólo debe verse el panel 1"
-        assert "Fire laser at AVM" in pag.inner_text("#fire-btn")
-        print("narración:", pag.inner_text("#narr-text")[:120])
-        pag.screenshot(path=str(out / "1_inicio.png"))
+        entrar(pag, completa=True, out=out)
+        assert "fire at avm" in pag.inner_text("#fire-btn").lower()
+        print("narración:", pag.inner_text("#narr-text")[:110])
+        pag.wait_for_timeout(1200)
+        pag.screenshot(path=str(out / "1_hud.png"), **SHOT)
 
-        # sonido: botón para silenciar (aria-pressed)
+        # sonido, ayuda y menú (Esc)
         pag.click("#sound-btn")
-        assert pag.get_attribute("#sound-btn", "aria-pressed") == "false" and "off" in pag.inner_text("#sound-btn")
+        assert pag.get_attribute("#sound-btn", "aria-pressed") == "false"
         pag.click("#sound-btn")
         assert pag.get_attribute("#sound-btn", "aria-pressed") == "true"
-
-        # ayuda "?" y ajustes de laboratorio
         pag.click('button.help[data-help="theta"]')
         assert pag.is_visible("#help-pop"), "la ayuda no se abrió"
         pag.keyboard.press("Escape")
         assert not pag.is_visible("#help-pop"), "Esc debe cerrar la ayuda"
-        pag.click("#lab-btn")
-        assert pag.is_visible("#gamma"), "el cajón de laboratorio no se abrió"
-        pag.fill("#casc-pasos", "5")
-        pag.screenshot(path=str(out / "1b_lab.png"))
         pag.keyboard.press("Escape")
-        assert not pag.is_visible("#lab"), "Esc debe cerrar el laboratorio"
+        assert pag.is_visible("#lab"), "Esc (sin nada abierto) abre el menú"
+        pag.fill("#casc-pasos", "5")
+        pag.screenshot(path=str(out / "1b_menu.png"), **SHOT)
+        pag.keyboard.press("Escape")
+        assert not pag.is_visible("#lab"), "Esc cierra el menú"
 
-        # panel 2 antes de disparar: el circuito del próximo disparo aparece al instante
-        pag.click("#tab-2")
-        pag.wait_for_selector("#circ-svg svg .hopbox", timeout=20000)
-        print("circuito (preview):", pag.inner_text("#circ-chips").replace("\n", " "))
-        pag.wait_for_timeout(400)
-        pag.screenshot(path=str(out / "2a_circuito_preview.png"))
-        pag.check('input[name="circ-vista"][value="compacta"]', force=True)
-        pag.wait_for_selector("#circ-svg svg .ubox", timeout=10000)
-        pag.screenshot(path=str(out / "2b_circuito_compacto.png"))
-        pag.check('input[name="circ-vista"][value="completa"]', force=True)
-
-        # 2) láser = cascada de circuitos en el backend
-        pag.focus("#tab-2")
-        pag.keyboard.press("ArrowLeft")
-        assert pag.is_visible("#chap-1"), "← debe volver al panel 1"
+        # inspector antes de disparar (tecla C): el circuito del próximo disparo
         pag.focus("#scene")
-        for _ in range(4):
-            pag.keyboard.press("+")
+        pag.keyboard.press("c")
+        assert pag.is_visible("#inspector"), "C debe abrir el inspector"
+        pag.wait_for_selector("#circ-svg svg .hopbox", timeout=60000)
+        print("circuito (preview):", pag.inner_text("#circ-chips").replace("\n", " "))
+        pag.check('input[name="circ-vista"][value="compacta"]', force=True)
+        pag.wait_for_selector("#circ-svg svg .ubox", timeout=20000)
+        pag.check('input[name="circ-vista"][value="completa"]', force=True)
+        pag.keyboard.press("Escape")
+        assert not pag.is_visible("#inspector"), "Esc cierra el inspector"
+
+        # 2) disparo cargado con el mouse sobre ALML
         pag.fill("#neuron-input", "ALML")
         pag.press("#neuron-input", "Tab")
         assert "ALML" in pag.inner_text("#fire-btn")
-        pag.click("#fire-btn")
-        pag.wait_for_function("document.querySelector('#narr-kicker').textContent.includes('superposition')", timeout=60000)
-        pag.wait_for_timeout(300)
-        pag.screenshot(path=str(out / "3a_superposicion.png"))
-        pag.wait_for_function("document.querySelector('#narr-kicker').textContent.includes('measured')", timeout=60000)
-        pag.screenshot(path=str(out / "3b_colapso.png"))
-        pag.wait_for_function("document.querySelector('#casc-stop').disabled && "
-                              "document.querySelectorAll('#casc-log li').length > 0", timeout=180000)
+        caja = pag.locator("#fire-btn").bounding_box()
+        pag.mouse.move(caja["x"] + caja["width"] / 2, caja["y"] + caja["height"] / 2)
+        pag.mouse.down()
+        pag.wait_for_function("document.getElementById('dose-meter').classList.contains('charging')", timeout=5000)
+        pag.wait_for_timeout(500)
+        print("cargando: θ =", pag.inner_text("#theta-val"), "· disparo", pag.inner_text("#pfire"))
+        pag.mouse.up()
+        pag.wait_for_selector(".achv", timeout=20000)
+        print("logro:", pag.inner_text(".achv .t"))
+        pag.wait_for_function("document.querySelector('#narr-kicker').textContent.toLowerCase().includes('superposition')",
+                              timeout=120000)
+        pag.screenshot(path=str(out / "2a_superposicion.png"), **SHOT)
+        esperar_fin_cascada(pag)
         assert pag.is_visible("#mini-circ svg"), "falta el circuito del paso"
         print("cascada:", pag.inner_text("#casc-estado"))
-        pag.screenshot(path=str(out / "3c_fin.png"))
+        print("estadísticas:", pag.inner_text("#hud-stats").replace("\n", " "))
+        pag.screenshot(path=str(out / "2b_fin.png"), **SHOT)
 
-        # panel 2 después: el último paso, con sus conteos
-        pag.click("#tab-2")
-        pag.wait_for_function("document.querySelector('#circ-title').textContent.startsWith('Step')", timeout=20000)
-        pag.wait_for_selector("#counts li", timeout=10000)
-        print("conteos:", pag.inner_text("#counts").replace("\n", " | ")[:200])
-        print("mpl:", pag.inner_text("#fig-estado")[:120])
-        pag.wait_for_timeout(600)
-        pag.screenshot(path=str(out / "4_circuito_paso.png"), full_page=True)
+        # el inspector después: el último paso con sus conteos
+        pag.focus("#scene")
+        pag.keyboard.press("c")
+        pag.wait_for_function("document.querySelector('#circ-title').textContent.startsWith('Step')", timeout=30000)
+        pag.wait_for_selector("#counts li", timeout=20000)
+        print("conteos:", pag.inner_text("#counts").replace("\n", " | ")[:160])
+        pag.screenshot(path=str(out / "3_inspector.png"), **SHOT)
         pag.select_option("#circ-step", "0")
-        pag.wait_for_function("document.querySelector('#circ-title').textContent.startsWith('Step 1')", timeout=10000)
+        pag.wait_for_function("document.querySelector('#circ-title').textContent.startsWith('Step 1')", timeout=180000)
+        pag.keyboard.press("Escape")
 
-        # 3) IonQ imitado: un job por ejecución
+        # 3) IonQ imitado: un job por ejecución (disparo con Enter = dosis del menú)
         pag.goto(a.url + "/?backend=ionq")
         entrar(pag)
         print("pill:", pag.inner_text("#backend-pill"))
-        pag.click("#fire-btn")
-        pag.wait_for_function("document.querySelector('#casc-stop').disabled && "
-                              "document.querySelectorAll('#casc-log li').length > 0", timeout=120000)
+        pag.keyboard.press("Enter")
+        esperar_fin_cascada(pag, 120000)
         assert pag.locator("#casc-log li").count() == 1, "IonQ: un solo paso"
         assert pag.is_disabled("#fire-btn"), "IonQ debería quedar en un job por ejecución"
         print("ionq: 1 paso y botón bloqueado ✓")
 
-        # 4) hardware imitado: pide confirmación
+        # 4) hardware imitado: un toque pide confirmación
         pag.goto(a.url + "/?backend=qpu")
         entrar(pag)
         pag.click("#fire-btn")
-        assert "Confirm" in pag.inner_text("#fire-btn"), "falta la confirmación de hardware"
+        assert "confirm" in pag.inner_text("#fire-btn").lower(), "falta la confirmación de hardware"
         print("qpu: pide confirmación ✓")
 
         # 5) pantalla angosta
         pag.set_viewport_size({"width": 700, "height": 900})
-        pag.wait_for_timeout(800)
-        pag.screenshot(path=str(out / "5_movil.png"), full_page=True)
+        pag.wait_for_timeout(1000)
+        pag.screenshot(path=str(out / "5_angosta.png"), **SHOT)
+        nav.close()
+
+        # 6) prefers-reduced-motion: la intro se salta y la cascada corre sin animaciones
+        nav = p.chromium.launch(args=ARGS)
+        ctx = nav.new_context(viewport={"width": 1280, "height": 860}, reduced_motion="reduce")
+        pag = ctx.new_page()
+        pag.on("pageerror", lambda e: errores.append(f"pageerror (reduced): {e}"))
+        pag.goto(a.url)
+        entrar(pag)
+        pag.keyboard.press("Escape")
+        pag.fill("#casc-pasos", "3")
+        pag.keyboard.press("Escape")
+        pag.focus("#fire-btn")
+        pag.keyboard.press("Enter")
+        esperar_fin_cascada(pag, 180000)
+        print("reduced motion:", pag.inner_text("#casc-estado"))
         nav.close()
     if errores:
         print("\n".join(errores))

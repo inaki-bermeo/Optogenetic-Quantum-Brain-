@@ -2,17 +2,21 @@
 // for proper Qiskit integration into JS code). If any Qiskit features / packages are used, it
 // fill fail as soon as those are imported (or "backend" variable is used)
 
-// Optogenetic Quantum Brain · Qollab page (JS / Qiskit)
+// Optogenetic Quantum Brain · Qollab page (JS / Qiskit), styled as a sci-fi lab HUD
 //
-// Panel 1 · Laser & measure: the laser RX(θ) excites a neuron and every step of the spike cascade is a
-//   10-qubit Qiskit circuit (the neuron that fired + its 9 most connected neighbours) run on the selected
-//   `backend`. Measuring collapses the walk onto one neuron, which fires the next step.
-// Panel 2 · The Qiskit circuit: the exact QuantumCircuit of each step, drawn instantly from its
+// Intro (js/intro.js): boot console while Python loads → title → three beats on the real scene.
+// HUD: the laser RX(θ) excites a neuron (hold to charge θ, tap to fire at the menu dose) and every step of
+//   the spike cascade is a 10-qubit Qiskit circuit (the neuron that fired + its 9 most connected
+//   neighbours) run on the selected `backend`. Measuring collapses the walk onto one neuron, which fires
+//   the next step. Stats and achievements (js/juego.js) are progress feedback, never different physics.
+// Circuit inspector (key C): the exact QuantumCircuit of each step, drawn instantly from its
 //   instructions (every RXX/RYY gate), its measured counts, and Qiskit's own draw("mpl") figure.
 //
 // This effort is supported by Qollab & IonQ.
 import { QUALITY, WormScene } from "./js/escena.js";
 import { dataTable, esc, groupedBars, SERIES_COLORS } from "./js/graficos.js";
+import { Intro } from "./js/intro.js";
+import { Carga, Juego, probDisparo } from "./js/juego.js";
 import { py, respirar } from "./js/python.js";
 import { notaNeurona, Sonido } from "./js/sonido.js";
 
@@ -24,9 +28,10 @@ const BACKEND = typeof backend !== "undefined" ? backend : null; // eslint-disab
 
 const state = { neurons: [], index: new Map(), source: "AVM", backend: null, jobsSent: 0 };
 const cascade = { running: false, stop: false, armed: false, centers: [], steps: [] };
-const ui = { chapter: 1, narr: null, intro: true };
+const ui = { inspector: false, narr: null, intro: true, theta: Math.PI };
 const circ = { cache: new Map(), follow: true, turno: 0, fig: new Map(), figTurno: 0, mplListo: false, mpl: null };
 const DOS_QUBITS = new Set(["rxx", "ryy", "rzz", "rzx", "cx", "cz", "ecr", "ms", "zz", "swap", "iswap", "xx_plus_yy"]);
+const pad = (n, w = 2) => String(n).padStart(w, "0");
 const SOUND_ON = '<path d="M4 9v6h4l5 4V5L8 9H4z"/><path d="M16 8.5a5 5 0 0 1 0 7M18.5 6a8.5 8.5 0 0 1 0 12"/>';
 const SOUND_OFF = '<path d="M4 9v6h4l5 4V5L8 9H4z"/><path d="M17 9l5 6M22 9l-5 6"/>';
 const sleep = (ms) => new Promise((ok) => setTimeout(ok, ms));
@@ -48,8 +53,9 @@ const HELP = {
 };
 
 const scene = new WormScene($("scene"), { quality: "auto" });
-scene.setPaused(true); // hasta salir de la pantalla de inicio (bindIntro)
 const sound = new Sonido();
+const juego = new Juego();
+let intro = null;
 
 // ------------------------------------------------------------------ utilidades
 function toast(msg, isErr = false) {
@@ -85,9 +91,7 @@ function neuronCard(name) {
   const d = state.neurons[i];
   const nt = d.neurotransmitters?.length ? d.neurotransmitters.join(", ") : "—";
   $("neuron-card").innerHTML =
-    `<b>${esc(d.name)}</b><span class="tag ${d.type}">${TYPE_ES[d.type]}</span><br>` +
-    `${d.degree} connections · neurotransmitter: ${esc(nt)}<br>` +
-    `anteroposterior position: ${d.y.toFixed(0)} µm`;
+    `<span class="tag ${d.type}">${TYPE_ES[d.type]}</span> <b>${d.degree}</b> links · ${esc(nt)} · y ${d.y.toFixed(0)} µm`;
 }
 
 // ------------------------------------------------------------------ narración sobre el gusano
@@ -99,37 +103,84 @@ function narrate(kicker, html, tone = "") {
 }
 
 function narrateReady() {
-  narrate("Start here", `Pick a neuron (click it on the worm or type its name) and press <b>Fire laser</b>. ` +
+  narrate("Standing by", `Target a neuron (click it on the worm or type its name), then <b>hold to charge</b> the laser ` +
+    `or tap <b>Fire</b>. ` +
     `Each step runs a <span class="q">10-qubit circuit</span> on <b>${esc(state.backend?.nombre ?? "the backend")}</b>: ` +
     `the wave spreads for a time τ and then the circuit <span class="a">measures</span> it.`);
 }
 
-// ------------------------------------------------------------------ paneles
-const TABS = [1, 2].map((n) => $(`tab-${n}`));
-
-function setChapter(n, { focusTab = false } = {}) {
-  const prev = ui.chapter;
-  ui.chapter = n;
-  TABS.forEach((t, i) => {
-    const on = i + 1 === n;
-    t.setAttribute("aria-selected", String(on));
-    t.tabIndex = on ? 0 : -1;
-  });
-  $("chap-1").hidden = n !== 1;
-  $("chap-2").hidden = n !== 2;
-  if (focusTab) TABS[n - 1].focus();
+// ------------------------------------------------------------------ inspector del circuito
+function setInspector(open) {
+  if (open === ui.inspector) return;
+  ui.inspector = open;
+  $("inspector").hidden = !open;
+  $("stage").inert = open;
+  $("inspect-btn").setAttribute("aria-expanded", String(open));
   closeHelp();
-  scene.setPaused(n !== 1 || ui.intro);
-  if (prev !== n && n === 2) {
+  scene.setPaused(open || ui.intro);
+  sound.ui(open ? "select" : "back");
+  if (open) {
     renderCircuitPanel();
-    precargarMpl(); // matplotlib (~30 s la 1ª vez) sólo se carga si alguien abre el panel 2
+    precargarMpl(); // matplotlib (~30 s la 1ª vez) sólo se carga si alguien abre el inspector
+    $("inspector-close").focus();
+  } else {
+    $("inspect-btn").focus();
   }
+}
+
+// ------------------------------------------------------------------ HUD: estadísticas, dosis, logros
+function renderStats(paso = null, total = null) {
+  const st = juego.stats();
+  const set = (id, html) => {
+    const el = $(id);
+    if (el.innerHTML === html) return;
+    el.innerHTML = html;
+    el.classList.remove("bump");
+    void el.offsetWidth;
+    el.classList.add("bump");
+  };
+  if (paso != null) set("st-step", `${pad(paso)}/${pad(total)}`);
+  set("st-jumps", pad(st.saltos));
+  set("st-streak", `×${st.racha}`);
+  set("st-neurons", `${pad(st.neuronas, 3)}<small>/302</small>`);
+}
+
+/** Medidor de dosis: llenado = θ/π; texto = probabilidad de disparo sin²(θ/2). */
+function setDose(theta, { charging = false } = {}) {
+  const p = probDisparo(theta);
+  $("dose-meter").style.setProperty("--dose", (theta / Math.PI).toFixed(3));
+  $("dose-meter").classList.toggle("charging", charging);
+  $("fire-btn").style.setProperty("--charge", charging ? (theta / Math.PI).toFixed(3) : 0);
+  $("theta-val").textContent = fmtTheta(theta);
+  $("pfire").textContent = `${Math.round(100 * p)}%`;
+  $("dose-meter").setAttribute("aria-valuenow", p.toFixed(2));
+  $("dose-meter").setAttribute("aria-valuetext", `θ = ${fmtTheta(theta)}, fire chance ${Math.round(100 * p)}%`);
+}
+
+function mostrarLogro(l) {
+  const box = $("achievements");
+  const el = document.createElement("div");
+  el.className = "achv";
+  el.innerHTML = `<p class="k">Achievement unlocked</p><p class="t">${esc(l.t)}</p><p class="d">${esc(l.d)}</p>`;
+  box.appendChild(el);
+  sound.logro();
+  announce(`Achievement: ${l.t}. ${l.d}`);
+  setTimeout(() => { el.classList.add("out"); setTimeout(() => el.remove(), 450); }, REDUCED ? 6000 : 4200);
+}
+
+function barrido() {
+  const s = $("sweep");
+  s.classList.remove("run");
+  void s.offsetWidth;
+  s.classList.add("run");
 }
 
 // ------------------------------------------------------------------ fuente del láser
 function fireLabel() {
   if (cascade.running) return;
-  $("fire-label").textContent = cascade.armed ? "Confirm: 1 step on hardware (uses credits)" : `Fire laser at ${state.source}`;
+  $("fire-label").textContent = cascade.armed ? "Confirm · 1 step on hardware (credits)" : `Fire at ${state.source}`;
+  $("fire-btn").classList.toggle("armed", cascade.armed);
+  $("fire-btn").classList.toggle("ready", !cascade.armed && !$("fire-btn").disabled);
 }
 
 function showSourceOnly() {
@@ -152,7 +203,8 @@ function selectSource(name) {
   fireLabel();
   showSourceOnly();
   $("mini-circ").hidden = true;
-  narrate("Ready", `The laser will hit <b>${esc(name)}</b>. Press <b>Fire laser</b>: the first circuit puts RX(θ) on its qubit.`);
+  narrate("Target locked", `The laser will hit <b>${esc(name)}</b>. Hold to charge θ (or tap <b>Fire</b>): the first circuit puts RX(θ) on its qubit.`);
+  sound.ui("select");
   announce(`Source neuron: ${name}.`);
   prefetchPreview();
   return true;
@@ -186,6 +238,7 @@ function closeHelp({ refocus = false } = {}) {
 function setLab(open) {
   $("lab").hidden = !open;
   $("lab-btn").setAttribute("aria-expanded", String(open));
+  sound.ui(open ? "select" : "back");
   (open ? $("lab-close") : $("lab-btn")).focus();
 }
 
@@ -194,7 +247,8 @@ function stopCascade() {
   if (cascade.running) cascade.stop = true;
 }
 
-async function fire() {
+/** Dispara el láser. `thetaCarga` = θ cargado manteniendo presionado; si falta, la dosis del menú. */
+async function fire(thetaCarga = null) {
   if (cascade.running) return;
   const typed = $("neuron-input").value.trim().toUpperCase();
   if (typed !== state.source && !selectSource(typed)) return;
@@ -216,14 +270,20 @@ async function fire() {
   sound.musicaDuck(true); // la música baja durante la medición
   const total = ionq ? 1 : clamp(parseInt($("casc-pasos").value, 10) || 12, 1, 60);
   const shots = clamp(parseInt($("casc-shots").value, 10) || 200, 20, 2000);
-  const { theta, tau, gamma } = physics();
+  const { tau, gamma } = physics();
+  const theta = thetaCarga ?? physics().theta;
+  setDose(theta);
   closeHelp();
   Object.assign(cascade, { running: true, stop: false, centers: [state.source], steps: [] });
   circ.follow = true;
   $("fire-btn").disabled = true;
   $("fire-label").textContent = "Running circuits…";
+  $("fire-btn").classList.remove("ready");
   $("casc-stop").disabled = false;
   $("casc-log").innerHTML = "";
+  $("chain-n").textContent = "0";
+  juego.inicio(); // "First light" la primera vez (se muestra por juego.on.logro)
+  renderStats(0, total);
   let centro = state.source;
   const idx0 = state.index.get(centro);
   showSourceOnly();
@@ -248,17 +308,20 @@ async function fire() {
       r.salto = !!(r.spike && r.spike !== centro);
       if (r.salto) cascade.centers.push(r.spike);
       renderCascadePanel(r, k, total);
-      if (ui.chapter === 2) renderCircuitPanel();
+      if (ui.inspector) renderCircuitPanel();
       const hot = r.spike ? r.ventana.indexOf(r.spike) : -1;
       const nota = r.spike_indice != null ? notaNeurona(r.spike_indice) : 0;
-      if (ui.chapter === 1 && !REDUCED) {
+      if (!ui.inspector && !REDUCED) {
         narrateSuperposition(r);
         sound.medicion(r.teoria_ventana, hot, nota);
+        setTimeout(barrido, 900); // el barrido de escaneo acompaña al colapso
         await scene.collapse(r.ventana_indices, r.teoria_ventana, r.spike_indice);
       }
       if (r.spike) sound.disparo(nota, r.salto); else sound.vacio();
       applyCascadeScene(r);
       narrateMeasurement(r);
+      juego.paso(r, { theta: params.theta, ionq: state.backend.ionq });
+      renderStats(k, total);
       if (!r.spike) {
         fin = r.motivo_fin === "vacio" ? "vacio" : "perdida";
         break;
@@ -288,10 +351,10 @@ async function fire() {
         `<span class="a">${cascade.centers.map(esc).join(" → ")}</span>. ` +
         (saltos <= 1 && tau <= 4
           ? "With such a short τ, measuring keeps pinning the spike in place: the quantum Zeno effect. Try τ = 8."
-          : "Each jump was decided by measuring a real circuit. Open <b>The Qiskit circuit</b> to see every gate."),
+          : "Each jump was decided by measuring a real circuit. Press <b>C</b> to inspect every gate."),
       "collapse");
     }
-    if (ui.chapter === 2) renderCircuitPanel();
+    if (ui.inspector) renderCircuitPanel();
   }
 }
 
@@ -363,6 +426,7 @@ function renderCascadePanel(r, k, total) {
       ? `<b>${esc(r.centro)}</b> stays (the spike came out on the centre)`
       : `<b>${esc(r.centro)}</b> · no spike`;
   $("casc-log").appendChild(li);
+  $("chain-n").textContent = String($("casc-log").children.length);
   $("casc-log").scrollTop = $("casc-log").scrollHeight;
   if (r.salto) announce(`Step ${k}: ${r.spike} fires.`);
 }
@@ -611,7 +675,7 @@ async function pedirMpl(r, p) {
     const f = f0 ?? await py.figuras(params);
     circ.fig.set(clave, f);
     circ.mplListo = true;
-    if (turno !== circ.figTurno || ui.chapter !== 2) return;
+    if (turno !== circ.figTurno || !ui.inspector) return;
     const ops = Object.entries(f.ops).map(([k, val]) => `${k}: ${val}`).join(", ");
     const medido = f.histograma_tipo === "medido";
     $("fig-circ").src = f.circuito_svg;
@@ -653,27 +717,51 @@ function renderBackendInfo() {
     : `Ready on ${b.nombre}. Nothing has run yet.`;
 }
 
-/** Pantalla de inicio: la página queda inerte y la escena en pausa hasta que se entra. */
-function bindIntro() {
-  const intro = $("intro-screen"), btn = $("intro-enter-btn");
-  if (!intro || !btn) { ui.intro = false; scene.setPaused(ui.chapter !== 1); return; }
-  const entrar = () => {
-    if (!ui.intro) return;
-    ui.intro = false;
-    intro.classList.add("hidden");
-    $("app").inert = false;
-    document.querySelector(".skip-link").inert = false;
-    scene.setPaused(ui.chapter !== 1);
-    TABS[ui.chapter - 1].focus();
-  };
-  btn.addEventListener("click", entrar);
-  intro.addEventListener("keydown", (e) => { if (e.key === "Escape") { e.preventDefault(); entrar(); } });
-  btn.focus();
+/** Disparo con "mantener para cargar": puntero sobre el botón o Espacio en cualquier parte del HUD. */
+function bindCarga() {
+  const btn = $("fire-btn");
+  const carga = new Carga({
+    nivel: (th, cargando) => {
+      if (!cargando) return;
+      if (!carga._sonando) { carga._sonando = true; sound.cargaInicio(); }
+      setDose(th, { charging: true });
+      sound.cargaNivel(th / Math.PI);
+    },
+    soltar: (th, cargado) => {
+      carga._sonando = false;
+      sound.cargaFin();
+      $("fire-btn").style.setProperty("--charge", 0);
+      if (cargado) fire(th); else { setDose(physics().theta); fire(); }
+    },
+  });
+  const puede = () => !btn.disabled && !cascade.running && !ui.intro && !ui.inspector;
+  btn.addEventListener("pointerdown", (e) => {
+    if (e.button !== 0 || !puede()) return;
+    btn.setPointerCapture(e.pointerId);
+    if (sound.on) sound.activar();
+    carga.empezar();
+  });
+  btn.addEventListener("pointerup", () => carga.soltar());
+  btn.addEventListener("pointercancel", () => { carga.cancelar(); sound.cargaFin(); setDose(physics().theta); });
+  // Enter (o Espacio con el foco en el botón y sin mantener): disparo con la dosis del menú
+  btn.addEventListener("click", (e) => { if (e.detail === 0) fire(); });
+  const escribiendo = (el) => el && (el.matches("input, select, textarea") || el.isContentEditable);
+  document.addEventListener("keydown", (e) => {
+    if (e.code !== "Space" || e.repeat || escribiendo(document.activeElement) || !puede()) return;
+    if (document.activeElement?.closest("button:not(#fire-btn), summary, a")) return; // Espacio activa ese control
+    e.preventDefault();
+    if (sound.on) sound.activar();
+    carga.empezar();
+  });
+  document.addEventListener("keyup", (e) => {
+    if (e.code !== "Space" || !carga.activa) return;
+    e.preventDefault();
+    carga.soltar();
+  });
 }
 
 function bindUI() {
-  bindIntro();
-  $("fire-btn").addEventListener("click", fire);
+  bindCarga();
   $("casc-stop").addEventListener("click", stopCascade);
   $("neuron-input").addEventListener("change", () => {
     const nm = $("neuron-input").value.trim().toUpperCase();
@@ -682,8 +770,8 @@ function bindUI() {
   $("neuron-input").addEventListener("keydown", (e) => { if (e.key === "Enter") fire(); });
   $("theta").addEventListener("input", () => {
     const th = thetaVal();
-    $("theta-val").textContent = fmtTheta(th);
-    $("pfire").textContent = (Math.sin(th / 2) ** 2).toFixed(2);
+    $("theta-val2").textContent = fmtTheta(th);
+    setDose(th);
     $("theta").setAttribute("aria-valuetext", `θ = ${fmtTheta(th)}, fire probability ${(Math.sin(th / 2) ** 2).toFixed(2)}`);
   });
   $("tau").addEventListener("input", () => {
@@ -696,7 +784,7 @@ function bindUI() {
   $("quality").addEventListener("change", () => scene.setQuality($("quality").value));
   scene.on("quality", (q, auto) => {
     $("quality").querySelector('option[value="auto"]').textContent = `Auto (${QUALITY[q].label.toLowerCase()})`;
-    if (auto) toast(`Graphics quality set to "${QUALITY[q].label}" to keep it smooth`);
+    if (auto && !ui.intro) toast(`Graphics quality set to "${QUALITY[q].label}" to keep it smooth`);
   });
   $("autorotate").addEventListener("change", () => scene.setAutoRotate($("autorotate").checked));
   $("swim").addEventListener("change", () => scene.setSwimEnabled($("swim").checked));
@@ -708,7 +796,7 @@ function bindUI() {
     sound.setOn(on);
     if (on && sound.activar()) sound.musicaOn();
     $("sound-btn").setAttribute("aria-pressed", String(on));
-    $("sound-label").textContent = on ? "Sound on" : "Sound off";
+    $("sound-btn").setAttribute("aria-label", on ? "Sound on" : "Sound off");
     $("sound-icon").innerHTML = on ? SOUND_ON : SOUND_OFF;
     announce(on ? "Sound on" : "Sound off");
   });
@@ -738,19 +826,10 @@ function bindUI() {
   });
   document.querySelectorAll('input[name="circ-vista"]').forEach((r) => r.addEventListener("change", renderCircuitPanel));
 
-  // pestañas (flechas, Inicio y Fin)
-  TABS.forEach((t, i) => {
-    t.addEventListener("click", () => setChapter(i + 1));
-    t.addEventListener("keydown", (e) => {
-      const n = { ArrowRight: i + 2, ArrowLeft: i, Home: 1, End: 2 }[e.key];
-      if (n === undefined) return;
-      e.preventDefault();
-      setChapter(((n - 1 + 2) % 2) + 1, { focusTab: true });
-    });
-  });
-  document.querySelectorAll("[data-goto]").forEach((b) => b.addEventListener("click", () => {
-    setChapter(parseInt(b.dataset.goto, 10), { focusTab: true });
-  }));
+  // inspector del circuito
+  $("inspect-btn").addEventListener("click", () => setInspector(true));
+  $("inspector-close").addEventListener("click", () => setInspector(false));
+  $("replay-intro").addEventListener("click", () => { setLab(false); ui.intro = true; scene.setPaused(false); intro.repetir(); });
   // ayuda
   document.querySelectorAll("button.help").forEach((b) => {
     b.setAttribute("aria-expanded", "false");
@@ -758,14 +837,23 @@ function bindUI() {
     b.addEventListener("click", (e) => { e.stopPropagation(); openHelp(b); });
   });
   document.addEventListener("click", (e) => { if (!e.target.closest("#help-pop")) closeHelp(); });
-  document.querySelector(".side").addEventListener("scroll", () => closeHelp(), { passive: true });
+  $("casc-card").addEventListener("scroll", () => closeHelp(), { passive: true });
   // ajustes de laboratorio
   $("lab-btn").addEventListener("click", () => setLab($("lab").hidden));
   $("lab-close").addEventListener("click", () => setLab(false));
   document.addEventListener("keydown", (e) => {
+    if (ui.intro) return;
+    const escribiendo = document.activeElement?.matches("input, select, textarea");
+    if ((e.key === "c" || e.key === "C") && !escribiendo && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      e.preventDefault();
+      setInspector(!ui.inspector);
+      return;
+    }
     if (e.key !== "Escape") return;
-    if (!$("help-pop").hidden) { closeHelp({ refocus: true }); e.preventDefault(); return; }
-    if (!$("lab").hidden) { setLab(false); e.preventDefault(); }
+    e.preventDefault();
+    if (!$("help-pop").hidden) closeHelp({ refocus: true });
+    else if (ui.inspector) setInspector(false);
+    else setLab($("lab").hidden);
   });
 
   scene.on("key", (e) => {
@@ -789,34 +877,64 @@ function bindUI() {
 }
 
 // ------------------------------------------------------------------ arranque
+/** Para la intro: el circuito real del próximo disparo (AVM), ya calculado por prefetchPreview. */
+async function demoIntro() {
+  const c = await cargarCircuito(previewParams());
+  return { fuente: state.index.get(c.centro), ventana_indices: c.ventana_indices, ideal_marginales: c.ideal_marginales };
+}
+
+/** Fin de la intro: el HUD queda listo, con la neurona fuente marcada y el foco en el disparo. */
+function alTerminarIntro() {
+  ui.intro = false;
+  scene.cancelCollapse();
+  scene.setPaused(ui.inspector);
+  scene.flyHome(REDUCED ? 0 : 1100);
+  showSourceOnly();
+  narrateReady();
+  fireLabel();
+  $("fire-btn").focus();
+}
+
 async function init() {
+  intro = new Intro({
+    scene, sound, app: $("app"), demo: demoIntro, alTerminar: alTerminarIntro, nota: notaNeurona,
+    mostrarSpike: (i) => scene.setLabel(i, `⚡ ${state.neurons[i].name}`),
+  });
+  juego.on.logro = mostrarLogro;
   bindUI();
-  const loaderText = $("loader-text");
+  setDose(physics().theta);
   try {
-    loaderText.textContent = "Reading the Cook et al. (2019) connectome in Python…";
     await respirar();
+    intro.log("Pyodide · Python core <b>online</b>");
     const con = await py.conectoma();
     state.neurons = con.neurons;
     con.neurons.forEach((d, i) => state.index.set(d.name, i));
     $("neuron-list").innerHTML = con.neurons.map((d) => `<option value="${d.name}">${TYPE_ES[d.type]}</option>`).join("");
-    loaderText.textContent = "Loading the 3D body…";
+    intro.log(`Connectome · Cook et al. 2019 · <b>${con.neurons.length} neurons</b>`);
+    intro.log(`<b>${con.edges.length.toLocaleString("en")}</b> strongest synapses mapped`);
     let glb = null;
     try { glb = await py.cuerpo(); } catch (e) { console.log(`No .glb body: ${e.message}`); }
     scene.setData(con.neurons, con.edges, glb);
+    intro.log(glb ? `Body mesh · <b>${Math.round(glb.byteLength / 1024)} KB</b>` : "Body mesh · procedural", { ok: !!glb });
     if (BACKEND) {
       try { state.backend = await py.backendInfo(BACKEND); } catch (e) { console.log(`backend: ${e.message}`); }
     }
     renderBackendInfo();
-    $("loader").classList.add("hide");
+    intro.log(state.backend ? `Backend · <b>${esc(state.backend.nombre)}</b>` : "No backend · press Run on Qollab",
+      { err: !state.backend });
     neuronCard(state.source);
     fireLabel();
     showSourceOnly();
     narrateReady();
+    renderStats(0, clamp(parseInt($("casc-pasos").value, 10) || 12, 1, 60));
     prefetchPreview();
+    intro.log("Laser armed · <b>ready</b>");
+    intro.preparado();
     console.log(`Optogenetic Quantum Brain ready · ${con.neurons.length} neurons · ${con.edges.length} synapses drawn` +
       (state.backend ? ` · backend ${state.backend.nombre}` : ""));
   } catch (e) {
-    loaderText.textContent = `Could not start the Python core (${e.message}).`;
+    intro.log(`Could not start the Python core: ${esc(e.message)}`, { err: true });
+    intro.preparado({ error: true });
     $("backend-pill").textContent = "error";
     $("backend-pill").className = "pill err";
     console.log(`Startup error: ${e.stack || e.message}`);
