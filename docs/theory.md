@@ -1,251 +1,257 @@
-# Teoría: del conectoma a un circuito cuántico
+# Theory: from the connectome to a quantum circuit
 
-Este documento explica la física y las decisiones técnicas detrás de `backend/cerebro_q/` (el núcleo Python que corre en el navegador). Cada sección indica el módulo que la implementa y el test que la verifica (`tests/backend/test_cerebro_q.py`).
+This document explains the physics and the technical decisions behind `backend/cerebro_q/` (the Python core that runs in the browser). Each section names the module that implements it and the test that verifies it (`tests/backend/test_cerebro_q.py`).
 
-> **Origen.** Restaurado del prototipo (`git show 0c3e4e5:docs/TEORIA.md`) y ajustado a la app actual. Se quitaron las secciones que describían código que ya no está en el repo: el compilador propio a compuertas nativas de IonQ, el cliente REST, el presupuesto de errores del prototipo y su script de experimentos. Hoy Qiskit transpila el circuito y, en IonQ, su servidor lo compila a compuertas nativas (§6.3). El diseño de la cascada por ventanas está en [`cascade.md`](cascade.md).
+> **Origin.** Restored from the prototype (`git show 0c3e4e5:docs/TEORIA.md`) and adjusted to the current app. The sections that described code that is no longer in this repo were removed: the custom compiler to IonQ native gates, the REST client, the prototype's error budget and its experiment script. Today Qiskit transpiles the circuit and, on IonQ, the IonQ server compiles it to native gates (§6.3). The design of the window cascade is in [`cascade.md`](cascade.md).
 
-**Resumen en una frase.** Cada neurona de *C. elegans* es un qubit; un pulso de luz (láser optogenético) la rota con una compuerta $R_X(\theta)$; las sinapsis reales del gusano definen un hamiltoniano de saltos tipo XY cuya dinámica, en el sector de una excitación, es exactamente un *quantum walk* sobre el conectoma; medir un qubit en $|1\rangle$ equivale a un "spike" de esa neurona. En la app, cada paso de la cascada simula una ventana de 10 neuronas (la que disparó y sus 9 vecinas con más sinapsis) con un circuito de Qiskit de 10 qubits, que corre en el backend elegido en Qollab, incluido **IonQ Forte**.
-
----
-
-## Índice
-
-1. [Qué es y qué no es este modelo](#1-qué-es-y-qué-no-es-este-modelo)
-2. [Datos: del conectoma a una matriz hermítica](#2-datos-del-conectoma-a-una-matriz-hermítica)
-3. [Hamiltoniano XY y quantum walk](#3-hamiltoniano-xy-y-quantum-walk)
-4. [El láser optogenético como rotación de Rabi](#4-el-láser-optogenético-como-rotación-de-rabi)
-5. [Medición: el spike y la ley de conservación](#5-medición-el-spike-y-la-ley-de-conservación)
-6. [Del hamiltoniano al circuito](#6-del-hamiltoniano-al-circuito)
-7. [Elección de parámetros en la cascada](#7-elección-de-parámetros-en-la-cascada)
-8. [Mitigación de errores](#8-mitigación-de-errores)
-9. [Verificación numérica implementada](#9-verificación-numérica-implementada)
-10. [Extensiones posibles](#10-extensiones-posibles)
-11. [Referencias](#11-referencias)
+**Summary in one sentence.** Each *C. elegans* neuron is a qubit; a light pulse (the optogenetic laser) rotates it with an $R_X(\theta)$ gate; the worm's real synapses define an XY hopping Hamiltonian whose dynamics, in the one-excitation sector, are exactly a *quantum walk* on the connectome; measuring a qubit in $|1\rangle$ is a "spike" of that neuron. In the app, each step of the cascade simulates a window of 10 neurons (the one that fired and its 9 neighbours with the most synapses) with a 10-qubit Qiskit circuit that runs on the backend chosen in Qollab, **IonQ Forte** included.
 
 ---
 
-## 1. Qué es y qué no es este modelo
+## Contents
 
-**Es** una dinámica cuántica coherente definida sobre la red de sinapsis real de *C. elegans*, excitada por un pulso local que imita la estimulación optogenética. Usa la estructura del conectoma como "pista" por la que viaja una excitación cuántica, y permite comparar teoría exacta, simulación con ruido y hardware real.
+1. [What this model is and is not](#1-what-this-model-is-and-is-not)
+2. [Data: from the connectome to a Hermitian matrix](#2-data-from-the-connectome-to-a-hermitian-matrix)
+3. [XY Hamiltonian and quantum walk](#3-xy-hamiltonian-and-quantum-walk)
+4. [The optogenetic laser as a Rabi rotation](#4-the-optogenetic-laser-as-a-rabi-rotation)
+5. [Measurement: the spike and the conservation law](#5-measurement-the-spike-and-the-conservation-law)
+6. [From the Hamiltonian to the circuit](#6-from-the-hamiltonian-to-the-circuit)
+7. [Choosing the cascade parameters](#7-choosing-the-cascade-parameters)
+8. [Error mitigation](#8-error-mitigation)
+9. [Numerical verification implemented](#9-numerical-verification-implemented)
+10. [Possible extensions](#10-possible-extensions)
+11. [References](#11-references)
 
-**No es** un modelo biofísico de neuronas. Las neuronas reales son sistemas disipativos y clásicos a esta escala (potenciales de membrana, canales iónicos, ~ms); aquí no se afirma que el cerebro sea cuántico. La analogía es estructural:
+---
 
-| Optogenética real | Este modelo |
+## 1. What this model is and is not
+
+**It is** a coherent quantum dynamics defined on the real synapse network of *C. elegans*, excited by a local pulse that imitates optogenetic stimulation. It uses the structure of the connectome as the "track" along which a quantum excitation travels, and it lets us compare exact theory, noisy simulation and real hardware.
+
+**It is not** a biophysical model of neurons. Real neurons are dissipative, classical systems at this scale (membrane potentials, ion channels, milliseconds); we do not claim that the brain is quantum. The analogy is structural:
+
+| Real optogenetics | This model |
 |---|---|
-| Luz azul (~470 nm) abre la channelrhodopsina-2 | Pulso de control rota el qubit: $R_X(\theta)$ |
-| Intensidad × duración del pulso | Ángulo de Rabi $\theta = \Omega\,\tau$ |
-| Probabilidad de disparo según la dosis de luz | $P(\text{disparo}) = \sin^2(\theta/2)$ |
-| La actividad viaja por las sinapsis | La excitación salta por los acoplamientos $J_{ij}$ |
-| Registro de calcio / electrofisiología | Medición en base $Z$: $|1\rangle$ = spike |
+| Blue light (~470 nm) opens channelrhodopsin-2 | A control pulse rotates the qubit: $R_X(\theta)$ |
+| Pulse intensity × duration | Rabi angle $\theta = \Omega\tau$ |
+| Firing probability depends on the light dose | $P(\text{fire}) = \sin^2(\theta/2)$ |
+| Activity travels along the synapses | The excitation hops along the couplings $J_{ij}$ |
+| Calcium imaging / electrophysiology | $Z$-basis measurement: $\vert 1\rangle$ = spike |
 
-**Honestidad sobre la ventaja cuántica.** Con un solo láser, la dinámica vive en el sector de una excitación (dimensión $n$), que es clásicamente simulable en tiempo polinomial: así resolvemos las 302 neuronas. El hardware no "gana" aquí; demuestra la física. Con $k$ láseres simultáneos, el sector tiene dimensión $\binom{n}{k}$ y la exclusión (un qubit no admite dos excitaciones) introduce interacción efectiva (bosones de núcleo duro). Ahí la simulación clásica crece combinatoriamente y la evolución de Trotter en hardware es el camino natural (§10).
-
----
-
-## 2. Datos: del conectoma a una matriz hermítica
-
-*Módulos:* `cerebro_q/datos.py`, `cerebro_q/fisica.py` · *Datos:* `backend/data/` · *Test:* `TestFisica.test_normalizacion`
-
-**Fuentes.**
-
-- Sinapsis químicas y uniones gap del hermafrodita adulto: **Cook et al., *Nature* 2019**, distribuidas por OpenWorm (`c302/data/herm_full_edgelist.csv`). Tras filtrar a las 302 neuronas del sistema nervioso y normalizar nombres (`DA01` → `DA1`), quedan 3 604 conexiones químicas dirigidas y 2 155 entradas eléctricas.
-- Posición 3D del soma y clasificación (sensorial / interneurona / motora) de **OpenWorm CElegansNeuroML**: 302 neuronas, eje anteroposterior de −312 a 410 µm.
-- Sólo CANL/CANR quedan aisladas, porque no tienen sinapsis en el conjunto de datos.
-
-**Simetrización y pesos binarios.** Un hamiltoniano debe ser hermítico, así que $J$ tiene que ser simétrica. El proyecto usa **pesos binarios** (decisión del equipo): dos neuronas están conectadas si tienen al menos una sinapsis química, en cualquier sentido, o un contacto gap, y todas las conexiones pesan lo mismo:
-
-$$
-W_{ij} = \begin{cases} 1 & \text{si } c_{i\to j} + c_{j\to i} + g_{ij} + g_{ji} > 0 \\ 0 & \text{si no} \end{cases}
-$$
-
-$W$ es la matriz de adyacencia del conectoma, y la propagación depende solo de quién está conectado con quién. El backend conserva las opciones `log` ($\log(1+n_{ij})$, que pesa por número de sinapsis) y `count`. **Limitaciones:** se pierden la dirección de la sinapsis química (§10) y el número de sinapsis de cada conexión.
-
-**Normalización espectral.**
-
-$$
-J = \frac{W}{\lambda_{\max}(W)},\qquad \|J\|_2 = 1 .
-$$
-
-Con esto el tiempo queda en unidades de $1/\gamma$. Con pesos binarios, $\lambda_{\max}(W) \approx 32.8$ y toda conexión vale $J_{ij} \approx 0.0305$. Cada ventana de la cascada usa **la misma escala global**: $J_{\text{sub}} = J[S,S]$. Así su hamiltoniano es literalmente la restricción del de la red completa. Al restringir, la ventana se trata como **aislada**: se ignoran sus acoplamientos con las otras ~292 neuronas. Por eso su dinámica no coincide con la de esas mismas neuronas dentro de la red completa; cuánto se escapa en la red real según τ está en [`cascade.md`](cascade.md) §2.2.
+**Honesty about quantum advantage.** With a single laser, the dynamics live in the one-excitation sector (dimension $n$), which can be simulated classically in polynomial time: that is how we solve all 302 neurons. The hardware does not "win" here; it demonstrates the physics. With $k$ simultaneous lasers, the sector has dimension $\binom{n}{k}$ and the exclusion (a qubit cannot hold two excitations) introduces an effective interaction (hard-core bosons). There, classical simulation grows combinatorially and Trotter evolution on hardware is the natural path (§10).
 
 ---
 
-## 3. Hamiltoniano XY y quantum walk
+## 2. Data: from the connectome to a Hermitian matrix
 
-*Módulo:* `cerebro_q/fisica.py` · *Test:* `TestFisica`
+*Modules:* `cerebro_q/datos.py`, `cerebro_q/fisica.py` · *Data:* `backend/data/` · *Test:* `TestFisica.test_normalizacion`
 
-Asignamos un qubit a cada neurona ($|0\rangle$ en reposo, $|1\rangle$ excitada) y definimos
+**Sources.**
 
-$$
-H \;=\; \gamma \sum_{i<j} J_{ij}\,\frac{X_iX_j + Y_iY_j}{2}
-\;=\; \gamma \sum_{i<j} J_{ij}\left(\sigma_i^{+}\sigma_j^{-} + \sigma_i^{-}\sigma_j^{+}\right).
-$$
+- Chemical synapses and gap junctions of the adult hermaphrodite: **Cook et al., *Nature* 2019**, distributed by OpenWorm (`c302/data/herm_full_edgelist.csv`). After filtering to the 302 neurons of the nervous system and normalizing names (`DA01` → `DA1`), there remain 3,604 directed chemical connections and 2,155 electrical entries.
+- 3D position of the soma and classification (sensory / interneuron / motor) from **OpenWorm CElegansNeuroML**: 302 neurons, anteroposterior axis from −312 to 410 µm.
+- Only CANL and CANR remain isolated, because they have no synapses in the dataset.
 
-Es el modelo XY, o de bosones de núcleo duro, sobre el grafo del conectoma: cada término mueve una excitación de $j$ a $i$ con amplitud $\gamma J_{ij}$.
+**Symmetrization and binary weights.** A Hamiltonian must be Hermitian, so $J$ has to be symmetric. The project uses **binary weights** (a team decision): two neurons are connected if they share at least one chemical synapse, in either direction, or a gap junction, and all connections weigh the same:
 
-**Propiedad 1: conservación.** $[H, \hat N] = 0$ con $\hat N = \sum_k \tfrac{1}{2}(1 - Z_k)$. Cada término $\sigma^+_i\sigma^-_j$ destruye una excitación y crea otra.
+```math
+W_{ij} = \mathbb{1}\left[\, c_{i\to j} + c_{j\to i} + g_{ij} + g_{ji} > 0 \,\right]
+```
 
-**Propiedad 2: el vacío es estacionario.** $H\,|0\cdots0\rangle = 0$.
+where $\mathbb{1}[\cdot]$ is 1 when the condition holds and 0 otherwise, $c_{i\to j}$ counts chemical synapses and $g_{ij}$ gap junctions. $W$ is the adjacency matrix of the connectome, and the propagation depends only on who is connected to whom. Earlier prototypes also tried weights $\log(1+n_{ij})$ and raw counts; the current backend implements binary weights only. **Limitations:** the direction of the chemical synapse (§10) and the number of synapses of each connection are lost.
 
-**Propiedad 3: equivalencia con el quantum walk.** Sea $|e_k\rangle$ el estado con sólo la neurona $k$ excitada. Entonces $\sigma^+_i\sigma^-_j |e_k\rangle = \delta_{jk}|e_i\rangle$, y por lo tanto
+**Spectral normalization.**
 
-$$
-H\,|e_k\rangle = \gamma\sum_i J_{ik}\,|e_i\rangle
+```math
+J = \frac{W}{\lambda_{\max}(W)}, \qquad \lVert J \rVert_2 = 1
+```
+
+With this, time is measured in units of $1/\gamma$. With binary weights, $\lambda_{\max}(W) \approx 32.8$ and every connection has $J_{ij} \approx 0.0305$. Each window of the cascade uses **the same global scale**: $J_{\text{sub}} = J[S,S]$. Its Hamiltonian is therefore literally the restriction of the full network's. By restricting, the window is treated as **isolated**: its couplings to the other ~292 neurons are ignored. That is why its dynamics do not match those of the same neurons inside the full network; how much escapes in the real network as a function of τ is in [`cascade.md`](cascade.md) §2.2.
+
+---
+
+## 3. XY Hamiltonian and quantum walk
+
+*Module:* `cerebro_q/fisica.py` · *Test:* `TestFisica`
+
+We assign one qubit to each neuron ($|0\rangle$ at rest, $|1\rangle$ excited) and define
+
+```math
+H = \gamma \sum_{i \lt j} J_{ij}\,\frac{X_i X_j + Y_i Y_j}{2}
+  = \gamma \sum_{i \lt j} J_{ij}\,(\sigma_i^{+}\sigma_j^{-} + \sigma_i^{-}\sigma_j^{+})
+```
+
+This is the XY model, or hard-core boson model, on the connectome graph: each term moves an excitation from $j$ to $i$ with amplitude $\gamma J_{ij}$.
+
+**Property 1: conservation.** $[H, \hat N] = 0$ with $\hat N = \sum_k \tfrac{1}{2}(1 - Z_k)$. Each term $\sigma^+_i\sigma^-_j$ destroys one excitation and creates another.
+
+**Property 2: the vacuum is stationary.** $H |0\cdots0\rangle = 0$.
+
+**Property 3: equivalence with the quantum walk.** Let $|e_k\rangle$ be the state with only neuron $k$ excited. Then
+
+```math
+\sigma_i^{+}\sigma_j^{-}\,|e_k\rangle = \delta_{jk}\,|e_i\rangle
+```
+
+and therefore
+
+```math
+H\,|e_k\rangle = \gamma \sum_i J_{ik}\,|e_i\rangle
 \quad\Longrightarrow\quad
-H\big|_{\text{1 excitación}} = \gamma J .
-$$
+H\big|_{\text{1 excitation}} = \gamma J
+```
 
-La evolución en ese sector es el **quantum walk de tiempo continuo** (Farhi & Gutmann 1998) con hamiltoniano $\gamma J$:
+The evolution in that sector is the **continuous-time quantum walk** (Farhi & Gutmann 1998) with Hamiltonian $\gamma J$:
 
-$$
-\langle e_k | e^{-iHt} | e_j\rangle = \big[e^{-i\gamma J t}\big]_{kj}.
-$$
+```math
+\langle e_k | e^{-iHt} | e_j \rangle = \big[ e^{-i\gamma J t} \big]_{kj}
+```
 
-**Cálculo exacto en 302 neuronas.** $J$ es real y simétrica, con $J = V\Lambda V^{\top}$. Se diagonaliza una vez y, para cualquier $t$,
+**Exact computation on 302 neurons.** $J$ is real and symmetric, so $J = V \Lambda V^{\top}$. It is diagonalized once and, for any $t$,
 
-$$
-\big[e^{-i\gamma Jt}\big]_{kj} = \sum_m V_{km}\,e^{-i\gamma\lambda_m t}\,V_{jm},
-$$
+```math
+\big[ e^{-i\gamma J t} \big]_{kj} = \sum_m V_{km}\, e^{-i\gamma \lambda_m t}\, V_{jm}
+```
 
-lo que cuesta $O(N^2)$ por fotograma. Así se calcula en milisegundos (`fisica.probabilidades_walk`).
+which costs $O(N^2)$ per frame. That is how it is computed in milliseconds (`fisica.probabilidades_walk`).
 
-**Qué se ve.** El walk presenta interferencia: hay neuronas que se encienden y se apagan, y zonas que quedan oscuras porque las amplitudes de distintos caminos se cancelan. En una cadena avanzaría de forma balística (dispersión $\propto t$), pero el conectoma es un grafo de mundo pequeño: lo que distingue al walk es que nunca se estabiliza y recuerda su origen. Hacia $t = 60$ está repartido en una "participación efectiva" $1/\sum_k q_k^2 \approx 130$ neuronas, contra $\approx 285$ de la difusión clásica (detalles en `docs/teoria_tex/`).
-
----
-
-## 4. El láser optogenético como rotación de Rabi
-
-*Módulos:* `cerebro_q/cascada.circuito_paso`, `cerebro_q/circuitos.operaciones`
-
-En la channelrhodopsina, un pulso de luz resonante de frecuencia de Rabi $\Omega$ y duración $\tau$ rota un sistema de dos niveles en un ángulo $\theta = \Omega\tau$. En un qubit, el mismo control es
-
-$$
-R_X(\theta) = e^{-i\theta X/2},\qquad
-R_X(\theta)|0\rangle = \cos\tfrac{\theta}{2}|0\rangle - i\sin\tfrac{\theta}{2}|1\rangle .
-$$
-
-Al iluminar la neurona $j$ de la red en reposo:
-
-$$
-|\psi(0)\rangle = \cos\tfrac{\theta}{2}\,|0\cdots0\rangle - i\sin\tfrac{\theta}{2}\,|e_j\rangle .
-$$
-
-Por las propiedades 2 y 3 de §3, el vacío no evoluciona y la componente excitada hace el quantum walk:
-
-$$
-|\psi(t)\rangle = \cos\tfrac{\theta}{2}\,|0\cdots0\rangle - i\sin\tfrac{\theta}{2}\sum_k \big[e^{-i\gamma Jt}\big]_{kj}|e_k\rangle .
-$$
-
-**Resultado central (probabilidad de disparo de la neurona $k$):**
-
-$$
-\boxed{\,P_k(t) = \sin^2\!\tfrac{\theta}{2}\;\Big|\big[e^{-i\gamma Jt}\big]_{kj}\Big|^2\,}
-$$
-
-La intensidad del láser sólo escala la amplitud global: con $\theta = \pi$ el disparo es seguro, y con $\theta=\pi/2$ ocurre la mitad de las veces. El *patrón* de propagación lo fija el conectoma. `test_xy_igual_a_walk` verifica esta fórmula y $P(\text{vacío}) = \cos^2(\theta/2)$ contra la evolución exacta en el espacio de Hilbert completo (`tests/backend/referencia.py`).
-
-**Varios láseres.** $\bigotimes_{s\in S}R_X(\theta)_s$ crea una superposición de sectores con $0,\dots,|S|$ excitaciones (pesos binomiales). Para $|S|\ge2$ la dinámica ya no se reduce a $J$: la exclusión de núcleo duro impide que dos excitaciones ocupen la misma neurona. La referencia exacta de los tests la resuelve en el espacio completo para circuitos chicos.
+**What you see.** The walk shows interference: some neurons light up and go dark, and some regions stay dark because the amplitudes of different paths cancel. On a chain it would advance ballistically (spread $\propto t$), but the connectome is a small-world graph: what distinguishes the walk is that it never settles and remembers its origin. By $t = 60$ it is spread over an "effective participation" $1/\sum_k q_k^2 \approx 130$ neurons, against $\approx 285$ for classical diffusion (details in `docs/theory_tex/`).
 
 ---
 
-## 5. Medición: el spike y la ley de conservación
+## 4. The optogenetic laser as a Rabi rotation
 
-Se mide cada qubit en la base $Z$. Un disparo (*shot*) devuelve una cadena de bits, que es un patrón de activación de la ventana: el bit $k$ en 1 significa que la neurona $k$ disparó. La población $P_k = \Pr[b_k = 1]$ es la marginal.
+*Modules:* `cerebro_q/cascada.circuito_paso`, `cerebro_q/circuitos.operaciones`
 
-Como $\hat N$ se conserva, con $k$ láseres **ningún disparo ideal puede tener más de $k$ bits en 1**. Esa regla es la base de la mitigación por post-selección (§8).
+In channelrhodopsin, a resonant light pulse of Rabi frequency $\Omega$ and duration $\tau$ rotates a two-level system by an angle $\theta = \Omega\tau$. On a qubit, the same control is
+
+```math
+R_X(\theta) = e^{-i\theta X/2}, \qquad
+R_X(\theta)|0\rangle = \cos\tfrac{\theta}{2}\,|0\rangle - i\sin\tfrac{\theta}{2}\,|1\rangle
+```
+
+Illuminating neuron $j$ of the resting network gives
+
+```math
+|\psi(0)\rangle = \cos\tfrac{\theta}{2}\,|0\cdots0\rangle - i\sin\tfrac{\theta}{2}\,|e_j\rangle
+```
+
+By properties 2 and 3 of §3, the vacuum does not evolve and the excited component performs the quantum walk:
+
+```math
+|\psi(t)\rangle = \cos\tfrac{\theta}{2}\,|0\cdots0\rangle - i\sin\tfrac{\theta}{2} \sum_k \big[ e^{-i\gamma J t} \big]_{kj}\,|e_k\rangle
+```
+
+**Central result (firing probability of neuron $k$):**
+
+```math
+\boxed{\, P_k(t) = \sin^2\!\tfrac{\theta}{2}\;\Big|\big[ e^{-i\gamma J t} \big]_{kj}\Big|^2 \,}
+```
+
+The laser intensity only scales the global amplitude: with $\theta = \pi$ the firing is certain, and with $\theta = \pi/2$ it happens half of the time. The *pattern* of propagation is set by the connectome. `test_xy_igual_a_walk` checks this formula and $P(\text{vacuum}) = \cos^2(\theta/2)$ against the exact evolution in the full Hilbert space (`tests/backend/referencia.py`).
+
+**Several lasers.** $\bigotimes_{s \in S} R_X(\theta)_s$ creates a superposition of sectors with $0, \dots, |S|$ excitations (binomial weights). For $|S| \ge 2$ the dynamics no longer reduces to $J$: the hard-core exclusion prevents two excitations from occupying the same neuron. The tests' exact reference solves it in the full space for small circuits.
 
 ---
 
-## 6. Del hamiltoniano al circuito
+## 5. Measurement: the spike and the conservation law
 
-*Módulos:* `cerebro_q/circuitos.py`, `cerebro_q/cascada.py` · *Tests:* `TestCircuitos`, `TestCascada`
+Each qubit is measured in the $Z$ basis. A shot returns a bit string, which is an activation pattern of the window: bit $k$ equal to 1 means that neuron $k$ fired. The population $P_k = \Pr[b_k = 1]$ is the marginal.
 
-### 6.1 Por qué IonQ
+Since $\hat N$ is conserved, with $k$ lasers **no ideal shot can have more than $k$ bits equal to 1**. That rule is the basis of the mitigation by post-selection (§8).
 
-- **Conectividad total (all-to-all).** Cualquier par de iones puede entrelazarse directamente. Un conectoma es un grafo irregular y no planar, así que en un chip de vecinos cercanos cada sinapsis requeriría cadenas de SWAP. En IonQ cada sinapsis es una compuerta directa, sin sobrecosto de ruteo.
-- **Compuerta de entrelazamiento parametrizada.** Forte expone $ZZ(\theta)$ con el ángulo como parámetro, lo que encaja con los saltos pequeños $\gamma J_{ij}\delta t$ de una fórmula de Trotter (§6.3).
-- **Calidad.** Forte tiene 36 qubits, fidelidad de 1 qubit de 99,98 % y de 2 qubits de 99,6 % (ionq.com/quantum-systems/compare).
+---
 
-### 6.2 Evolución por Trotter–Suzuki
+## 6. From the Hamiltonian to the circuit
 
-Escribimos $H = \sum_{e} h_e$, con un término por sinapsis, $h_e = \gamma J_e\,(XX+YY)/2$. Cada término se exponencia exactamente con la compuerta de salto
+*Modules:* `cerebro_q/circuitos.py`, `cerebro_q/cascada.py` · *Tests:* `TestCircuitos`, `TestCascada`
 
-$$
-\mathrm{hop}(\alpha) \equiv e^{-i\alpha (XX+YY)/2},\qquad e^{-ih_e\delta} = \mathrm{hop}(\gamma J_e\delta).
-$$
+### 6.1 Why IonQ
 
-**1er orden:** $U_1(\delta) = \prod_e e^{-ih_e\delta}$. **2º orden (Strang):** $U_2(\delta) = \prod_e e^{-ih_e\delta/2}\prod_{e\,\text{(reverso)}} e^{-ih_e\delta/2}$. Con $r$ pasos y $\delta=t/r$:
+- **All-to-all connectivity.** Any pair of ions can be entangled directly. A connectome is an irregular, non-planar graph, so on a nearest-neighbour chip each synapse would need chains of SWAPs. On IonQ each synapse is a direct gate, with no routing overhead.
+- **Parameterized entangling gate.** Forte exposes $ZZ(\theta)$ with the angle as a parameter, which fits the small hops $\gamma J_{ij}\delta t$ of a Trotter formula (§6.2).
+- **Quality.** Forte has 36 qubits, a 1-qubit fidelity of 99.98 % and a 2-qubit fidelity of 99.6 % (ionq.com/quantum-systems/compare).
 
-$$
-\big\|e^{-iHt} - U_1(t/r)^r\big\| \le \frac{t^2}{2r}\sum_{a<b}\big\|[h_a,h_b]\big\|,
+### 6.2 Trotter–Suzuki evolution
+
+We write $H = \sum_e h_e$, with one term per synapse, $h_e = \gamma J_e (XX+YY)/2$. Each term is exponentiated exactly with the hop gate
+
+```math
+\mathrm{hop}(\alpha) \equiv e^{-i\alpha (XX+YY)/2}, \qquad e^{-ih_e\delta} = \mathrm{hop}(\gamma J_e \delta)
+```
+
+**First order:** $U_1(\delta) = \prod_e e^{-ih_e\delta}$. **Second order (Strang):** $U_2(\delta) = \prod_e e^{-ih_e\delta/2}\prod_{e \text{(reversed)}} e^{-ih_e\delta/2}$. With $r$ steps and $\delta = t/r$:
+
+```math
+\bigl\lVert e^{-iHt} - U_1(t/r)^r \bigr\rVert \le \frac{t^2}{2r} \sum_{a<b} \bigl\lVert [h_a, h_b] \bigr\rVert,
 \qquad
-\big\|e^{-iHt} - U_2(t/r)^r\big\| = O\!\left(\frac{t^3}{r^2}\right)
-$$
+\bigl\lVert e^{-iHt} - U_2(t/r)^r \bigr\rVert = O\!\left(\frac{t^3}{r^2}\right)
+```
 
-(Childs et al. 2021). Las mitades consecutivas sobre el mismo par se fusionan exactamente, porque un término conmuta consigo mismo. Así, $r$ pasos de 2º orden cuestan $(2|E|-2)\,r + 1$ saltos y no $2|E|r$; en `toque-6` ($|E|=8$, $r=2$) son 29 saltos, o sea 58 ZZ. La cota de conmutadores es holgada: en `toque-6`, a $t=30$ con $r=2$, la cota de 1er orden vale 7, mientras que el error real de 2º orden en distribución es TVD = 0,09. `test_trotter_converge` comprueba que el error baja al aumentar $r$. En la app el circuito usa `PauliEvolutionGate` con `SuzukiTrotter(order=2)` de Qiskit, que implementa exactamente esta fórmula (`test_circuito_paso_igual_a_teoria` lo compara con la teoría). Los ejemplos con `toque-6` son del microcircuito del prototipo.
+(Childs et al. 2021). Consecutive halves on the same pair merge exactly, because a term commutes with itself. So $r$ second-order steps cost $(2|E|-2) r + 1$ hops and not $2|E|r$; in `toque-6` ($|E| = 8$, $r = 2$) that is 29 hops, that is, 58 ZZ gates. The commutator bound is loose: in `toque-6`, at $t = 30$ with $r = 2$, the first-order bound is 7, while the actual second-order error in distribution is TVD = 0.09. `test_trotter_converge` checks that the error drops as $r$ grows. In the app the circuit uses Qiskit's `PauliEvolutionGate` with `SuzukiTrotter(order=2)`, which implements exactly this formula (`test_circuito_paso_igual_a_teoria` compares it with the theory). The `toque-6` examples come from the prototype's microcircuit.
 
-Al usar el hamiltoniano real, este modo es una **simulación hamiltoniana genuina** (Lloyd 1996) y se generaliza tal cual a varios láseres.
+Because it uses the real Hamiltonian, this mode is a **genuine Hamiltonian simulation** (Lloyd 1996) and it generalizes as is to several lasers.
 
-### 6.3 En IonQ: compuertas nativas
+### 6.3 On IonQ: native gates
 
-La página transpila cada circuito con `transpile(qc, backend, optimization_level=1)`, lo que recomienda `qiskit-ionq`. En los backends de IonQ las `RXX`/`RYY` quedan tal cual y el servidor de IonQ las compila a su compuerta nativa de dos qubits:
+The page transpiles each circuit with `transpile(qc, backend, optimization_level=1)`, which is what `qiskit-ionq` recommends. On IonQ backends the `RXX`/`RYY` gates are left as they are and the IonQ server compiles them to its native two-qubit gate:
 
-$$
-e^{-i\beta XX} = (V\!\otimes\! V)\,ZZ\!\left(\tfrac{\beta}{\pi}\right)(V^\dagger\!\otimes\! V^\dagger),\quad V=\mathrm{GPi2}(\tfrac14)=R_Y(\tfrac{\pi}{2}),
-$$
+```math
+e^{-i\beta XX} = (V \otimes V)\, ZZ\!\left(\tfrac{\beta}{\pi}\right) (V^\dagger \otimes V^\dagger), \qquad V = \mathrm{GPi2}(\tfrac14) = R_Y(\tfrac{\pi}{2})
+```
 
-y lo mismo para $YY$ con $W=\mathrm{GPi2}(0)=R_X(\tfrac{\pi}{2})$, donde $ZZ(\theta)=e^{-i\pi\theta\,Z\otimes Z}$ (fases en vueltas; docs.ionq.com, *Getting started with native gates*). Cada sinapsis por paso de Trotter cuesta entonces **2 compuertas ZZ**, sin SWAPs gracias a la conectividad total. En los simuladores con ruido de topología de vecinos cercanos, el transpilador agrega SWAPs: la página muestra las compuertas de 2 qubits después de transpilar.
+and the same for $YY$ with $W = \mathrm{GPi2}(0) = R_X(\tfrac{\pi}{2})$, where $ZZ(\theta) = e^{-i\pi\theta Z \otimes Z}$ (phases in turns; docs.ionq.com, *Getting started with native gates*). Each synapse per Trotter step therefore costs **2 ZZ gates**, with no SWAPs thanks to the all-to-all connectivity. On noisy simulators with nearest-neighbour topology, the transpiler adds SWAPs: the page shows the two-qubit gates after transpiling.
 
-Qollab permite **un job de IonQ por ejecución**: la cascada corre entonces un solo paso en IonQ (cada paso depende del anterior) y el botón queda bloqueado.
-
----
-
-## 7. Elección de parámetros en la cascada
-
-*Código:* `frontend/main.js` (`trotterReps`) · *Análisis:* `tools/zeno_analysis.py`
-
-- **Pasos de Trotter por ventana:** 1 si $\tau \le 4{,}5$, 2 si $\tau \le 9$ y 3 por encima. Con eso la TVD frente a la evolución exacta de la ventana queda bajo ~0,025.
-- **Costo:** una ventana tiene entre 25 (mediana) y 38 (máximo) aristas, porque las vecinas también están conectadas entre sí. Un paso de Strang ($r = 1$) son ~98 compuertas de dos qubits, y la fidelidad estimada en Forte es $0{,}996^{98} \approx 0{,}67$.
-- **τ por defecto = 8:** el compromiso entre que la ventana represente a la red y que el spike se mueva (efecto Zeno, ver [`cascade.md`](cascade.md) §2.2).
+Qollab allows **one IonQ job per run**: the cascade therefore runs a single step on IonQ (each step depends on the previous one) and the button is then locked.
 
 ---
 
-## 8. Mitigación de errores
+## 7. Choosing the cascade parameters
 
-1. **Post-selección por simetría** (Bonet-Monroig et al. 2018; McArdle et al. 2019). Se descartan los disparos con más excitaciones que láseres y se renormaliza (`analisis.contar_spikes`). En el prototipo, con ruido tipo Forte en `toque-6`, la TVD respecto de la teoría bajaba de 0,17 a 0,05 tras post-seleccionar. Este procedimiento es exactamente el que IonQ recomienda como *symmetry-based post-selection* en su guía de buenas prácticas.
-2. **Debiasing de IonQ.** El servidor puede generar variantes simétricas del circuito y agregarlas; es una opción de la API de IonQ (`settings.error_mitigation`).
-3. **Validación cruzada.** Cada paso compara la teoría de la ventana (walk exacto) con lo medido en el backend; el panel 2 muestra además la distribución ideal del circuito (Statevector).
+*Code:* `frontend/main.js` (`trotterReps`) · *Analysis:* `tools/zeno_analysis.py`
+
+- **Trotter steps per window:** 1 if $\tau \le 4.5$, 2 if $\tau \le 9$ and 3 above. With that, the TVD against the exact evolution of the window stays below about 0.025.
+- **Cost:** a window has between 25 (median) and 38 (maximum) edges, because the neighbours are also connected to each other. One Strang step ($r = 1$) is about 98 two-qubit gates, and the estimated fidelity on Forte is $0.996^{98} \approx 0.67$.
+- **Default τ = 8:** the compromise between the window representing the network and the spike actually moving (Zeno effect, see [`cascade.md`](cascade.md) §2.2).
 
 ---
 
-## 9. Verificación numérica implementada
+## 8. Error mitigation
 
-`python -m unittest discover -s tests/backend` (desde la raíz del repo):
+1. **Symmetry post-selection** (Bonet-Monroig et al. 2018; McArdle et al. 2019). Shots with more excitations than lasers are discarded and the rest is renormalized (`analisis.contar_spikes`). In the prototype, with Forte-like noise on `toque-6`, the TVD against the theory dropped from 0.17 to 0.05 after post-selecting. This is exactly the procedure IonQ recommends as *symmetry-based post-selection* in its best-practices guide.
+2. **IonQ debiasing.** The server can generate symmetric variants of the circuit and aggregate them; it is an option of the IonQ API (`settings.error_mitigation`).
+3. **Cross-validation.** Each step compares the window's theory (exact walk) with what the backend measured; panel 2 also shows the circuit's ideal distribution (Statevector).
 
-| Afirmación de la teoría | Test |
+---
+
+## 9. Numerical verification implemented
+
+`python -m unittest discover -s tests/backend` (from the repo root):
+
+| Claim of the theory | Test |
 |---|---|
-| $J$ simétrica, $\|J\|_2 = 1$, 302 neuronas | `TestFisica.test_normalizacion` |
-| El walk conserva la norma $\sin^2(\theta/2)$ | `TestFisica.test_walk_conserva_norma` |
-| Sector de 1 excitación de XY = quantum walk $\gamma J$; $P(\text{vacío}) = \cos^2(\theta/2)$ | `TestFisica.test_xy_igual_a_walk` |
-| Trotter converge a la evolución exacta | `TestCircuitos.test_trotter_converge` |
-| Convención de bits de Qiskit y post-selección de un spike | `TestCircuitos.test_orden_de_bits_qiskit` |
-| `PauliEvolutionGate` + `SuzukiTrotter` = teoría de la ventana | `TestCascada.test_circuito_paso_igual_a_teoria` |
-| Un paso = un job; el spike sale de un shot válido | `TestCascada.test_paso_en_backend`, `test_paso_sin_disparo` |
-| Efecto Zeno y la tabla τ del Project Card | `TestZeno` |
-| Reglas de Qollab (≤ 100 archivos, rutas literales, sin claves) | `TestReglasQollab` |
+| $J$ symmetric, $\lVert J \rVert_2 = 1$, 302 neurons | `TestFisica.test_normalizacion` |
+| The walk preserves the norm $\sin^2(\theta/2)$ | `TestFisica.test_walk_conserva_norma` |
+| One-excitation sector of XY = quantum walk $\gamma J$; $P(\text{vacuum}) = \cos^2(\theta/2)$ | `TestFisica.test_xy_igual_a_walk` |
+| Trotter converges to the exact evolution | `TestCircuitos.test_trotter_converge` |
+| Qiskit's bit convention and post-selection of one spike | `TestCircuitos.test_orden_de_bits_qiskit` |
+| `PauliEvolutionGate` + `SuzukiTrotter` = the window's theory | `TestCascada.test_circuito_paso_igual_a_teoria` |
+| One step = one job; the spike comes from a valid shot | `TestCascada.test_paso_en_backend`, `test_paso_sin_disparo` |
+| Zeno effect and the τ table of the Project Card | `TestZeno` |
+| Qollab rules (≤ 100 files, literal paths, no keys) | `TestReglasQollab` |
 
 ---
 
-## 10. Extensiones posibles
+## 10. Possible extensions
 
-- **Sinapsis dirigidas.** Un hamiltoniano no puede ser asimétrico. Las opciones son una caminata cuántica estocástica, que interpola con la clásica mediante una ecuación de Lindblad (Whitfield et al. 2010), o fases complejas $J_{ij}e^{i\varphi_{ij}}$ que rompen la simetría de inversión temporal (*chiral quantum walks*, Zimborás et al. 2013).
-- **Inhibición.** Las sinapsis GABAérgicas podrían llevar un signo negativo en $J_{ij}$. El circuito no cambia, porque la compilación ya admite ángulos negativos.
-- **Varios láseres en hardware.** Es el régimen de muchos cuerpos, clásicamente costoso, donde la simulación cuántica tiene sentido real.
-- **Disipación.** Un *amplitude damping* controlado modelaría el retorno al reposo de la neurona.
+- **Directed synapses.** A Hamiltonian cannot be asymmetric. The options are a quantum stochastic walk, which interpolates with the classical one through a Lindblad equation (Whitfield et al. 2010), or complex phases $J_{ij}e^{i\varphi_{ij}}$ that break time-reversal symmetry (*chiral quantum walks*, Zimborás et al. 2013).
+- **Inhibition.** GABAergic synapses could carry a negative sign in $J_{ij}$. The circuit does not change, because the compilation already admits negative angles.
+- **Several lasers on hardware.** This is the many-body regime, classically expensive, where quantum simulation makes real sense.
+- **Dissipation.** A controlled *amplitude damping* would model the neuron's return to rest.
 
 ---
 
-## 11. Referencias
+## 11. References
 
 1. E. Farhi, S. Gutmann, *Quantum computation and decision trees*, Phys. Rev. A **58**, 915 (1998).
 2. A. M. Childs, *Universal computation by quantum walk*, Phys. Rev. Lett. **102**, 180501 (2009).
@@ -269,4 +275,4 @@ Qollab permite **un job de IonQ por ejecución**: la cascada corre entonces un s
 20. IonQ, *API v0.4 — Create job*: https://docs.ionq.com/api-reference/v0.4/jobs/create-job
 21. IonQ, *Best practices for using IonQ hardware*: https://ionq.com/docs/best-practices-for-using-ionq-hardware
 22. IonQ, *Compare quantum systems*: https://www.ionq.com/quantum-systems/compare
-23. OpenWorm: https://github.com/openworm/c302 y https://github.com/openworm/CElegansNeuroML
+23. OpenWorm: https://github.com/openworm/c302 and https://github.com/openworm/CElegansNeuroML

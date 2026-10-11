@@ -56,7 +56,7 @@ tests/e2e/smoke_test.py   Playwright smoke test against tools/dev_server.py
 tools/                    blender/modelo_gusano.py (generates gusano.glb), build_qollab.py, dev_server.py + qollab_shim/, optimize_glb.py, zeno_analysis.py
 ```
 
-The physics behind each module is in [theory.md](theory.md) (Spanish). The cascade design is in [cascade.md](cascade.md).
+The physics behind each module is in [theory.md](theory.md). The cascade design is in [cascade.md](cascade.md).
 
 ## Python API called by the page
 
