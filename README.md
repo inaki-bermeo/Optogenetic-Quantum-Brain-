@@ -1,10 +1,6 @@
-# Optogenetic Quantum Brain
+**A quantum laser on the real *C. elegans* connectome: a 302-neuron quantum walk, and a spike cascade in which every jump is a 10-qubit Qiskit circuit.**
 
-> **A quantum laser on the real *C. elegans* connectome: a 302-neuron quantum walk, and a spike cascade in which every jump is a 10-qubit Qiskit circuit.**
-
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
-[![Powered by Qiskit](https://img.shields.io/badge/Powered_by-Qiskit-6133BD.svg)](https://qiskit.org/)
-[![Hardware: IonQ](https://img.shields.io/badge/Hardware-IonQ-000000.svg)](https://ionq.com/)
+**License:** [MIT](https://opensource.org/licenses/MIT) · **Built with:** [Qiskit](https://qiskit.org/) · **Hardware:** [IonQ](https://ionq.com/)
 
 **This effort is supported by Qollab & IonQ.**
 
