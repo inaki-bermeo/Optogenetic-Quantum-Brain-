@@ -120,9 +120,10 @@
         <div class="field-head"><span class="lbl" id="dose-lbl">Laser dose θ</span>
           <button type="button" class="help" data-help="theta" aria-label="What is θ?">?</button>
           <b id="theta-val">π</b></div>
-        <div class="dose-meter" id="dose-meter" role="meter" aria-labelledby="dose-lbl" aria-valuemin="0" aria-valuemax="1"
-             aria-valuenow="1" aria-valuetext="fire chance 100%"><i></i></div>
-        <p class="deck-sub">Fire chance <b id="pfire">100%</b> · sin²(θ/2)</p>
+        <div class="dose-meter" id="dose-meter" role="slider" tabindex="0" aria-labelledby="dose-lbl"
+             aria-describedby="dose-hint" aria-valuemin="0" aria-valuemax="100" aria-valuenow="100"
+             aria-valuetext="θ = π, fire chance 100%"><i></i></div>
+        <p class="deck-sub" id="dose-hint">Fire chance <b id="pfire">100%</b> · sin²(θ/2) · click or drag to set</p>
       </div>
 
       <div class="deck-cell deck-tau">

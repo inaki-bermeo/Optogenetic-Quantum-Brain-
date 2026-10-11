@@ -62,7 +62,7 @@ The module instances are `scene` (WormScene), `sound` (Sonido), `juego` (Juego) 
 | Function(s) | What |
 | --- | --- |
 | `selectSource`, `showSourceOnly`, `neuronCard` | Change the target neuron (typed, or picked on the worm) and show it |
-| `setDose`, `bindCarga` | Dose meter (θ/π fill, sin²(θ/2) text) and hold-to-charge input (`Carga`): pointer on the button, or Space anywhere. A short tap or Enter fires at the menu dose |
+| `setDose`, `bindCarga`, `bindDosis` | Dose meter (θ/π fill, sin²(θ/2) text) and hold-to-charge input (`Carga`): pointer on the button, or Space anywhere. A short tap or Enter fires at the menu dose. The meter is also a slider (`role="slider"`): click or drag it, or use the arrows, Page Up/Down, Home and End; it writes the menu dose (`#theta`) |
 | `renderStats`, `mostrarLogro` | Top stats bar, and the achievement banners (`juego.on.logro`) |
 | `narrate*` | Mission log text (also announced via `#sr-status` for screen readers) |
 | `renderCascadePanel`, `drawMiniCircuit`, `renderConducta` | Scanner: chips, step circuit summary, theory vs measured bars plus table, behaviour box |
@@ -84,7 +84,7 @@ The module instances are `scene` (WormScene), `sound` (Sonido), `juego` (Juego) 
 | Neurons | `setActivity(values)` (0..1 per neuron), `setHighlight(indices)` (rings), `setTrail(indices)`, `setLabel(index, text)` (lock-on reticle), `setEdgesVisible(v)` |
 | Effects | `fireLaser(index, intensity)`, `collapse(ventana, probs, spikeIdx, {superposition, collapse})` → Promise, `collapseNow()`, `cancelCollapse()` |
 | Behaviour | `actuar(ev, index)` → Promise (resolves when the return to rest starts), `puedeActuar`, `setDrive(d)`, `centroOmega()`, `vulva()` |
-| Food | `acercarComida(empuje)` (a forward push brings the food bacterium closer, a backward one moves it away; `actuar` calls it, and `main.js` calls it directly when nothing is animated), `comida` (state: distance to the mouth, smell glow, eating). The decorative bacteria are one `InstancedMesh` animated in its own shader (tumbling, Brownian drift, flow along x as the worm "moves"); they do not use `wormDeform` |
+| Food | `acercarComida(empuje)` (a forward push moves the whole worm towards the food bacterium, a backward one moves it back; it returns to its place when the behaviour ends; `actuar` calls it, and `main.js` calls it directly when nothing is animated, where a reaching push eats at once), `comida` (state: fixed position, smell glow, eating). The offset is `swimU.uDesp`, added by `wormDeform` and `deform()`. The decorative bacteria are one `InstancedMesh` animated in its own shader (tumbling and a small jitter in place); they do not use `wormDeform` |
 | Swim | `setSwim(on)`, `setSwimEnabled(v)`, `deform(p)` (JS copy of the shader deformation) |
 | Camera | `flyTo(index, {dur, dist})`, `flyToPoint(p, …)`, `flyHome()`, `guardarVista()` / `volverVista(v)`, `resetView()`, `setCinematic(on)`, `setAutoRotate(v)`, `arrastrando` |
 | Events | `on("pick" \| "hover" \| "key" \| "quality" \| "comer", fn)`; `comer` fires when the worm swallows the food |

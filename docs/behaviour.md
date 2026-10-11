@@ -46,14 +46,17 @@ Patterns match whole names, so `AS\d+` (motor neurons AS1–AS11) never matches 
   default forward swim.
 - **Food (bacteria).** *C. elegans* eats bacteria (in the lab, a lawn of *E. coli* OP50). Neon rods drift around the worm,
   green like GFP-labelled *E. coli* under the microscope and some magenta (mCherry); they are not to scale (a 2 µm
-  bacterium would be invisible). One of them, bigger and brighter, is the food the worm interacts with:
-  - the worm is anchored, so when it moves the world moves instead: crawling forward (the idle swim, and the forward push
-    of AVB, PVC, PLM, B-type motor neurons, AIY…) brings the food closer and makes the background bacteria flow towards
-    the tail; a backward push (AVA, AVD, AVE, ALM, AVM, ASH, AIB…) moves it away (`acercarComida(empuje)`);
+  bacterium would be invisible). The bacteria stay where they are (they only tumble and jitter a little in place). One
+  of them, bigger and brighter, is the food the worm interacts with:
+  - a forward push (AVB, PVC, PLM, B-type motor neurons, AIY…) moves the whole worm towards the food by 2 scene units per
+    unit of push (`ESTOCADA`), and a backward push (AVA, AVD, AVE, ALM, AVM, ASH, AIB…) moves it back towards the tail.
+    When the behaviour ends, the worm glides back to its place (`acercarComida(empuje)`, the `uDesp` offset that
+    `wormDeform` and `deform()` add to everything that bends with the body);
   - a chemosensory neuron (AWA, AWC, ASE) makes the food glow, sends a ring from it (the smell) and turns the head
     towards it (`giro`), with a small forward push: chemotaxis;
-  - when the food reaches the mouth the worm swallows it (the pharynx pumps), `on("comer")` plays the swallow sound and
-    unlocks *First meal*, and a new bacterium appears ahead.
+  - a strong forward push (AVB or PVC) reaches the food, 1.25–1.7 units ahead of the mouth: the worm swallows it (the
+    pharynx pumps), `on("comer")` plays the swallow sound and unlocks *First meal*, the worm goes back to its place and a
+    new bacterium appears ahead.
 - **Motions are curvature, like real muscle.** Every motion is a curvature profile κ(s) along the body (s = 0 head,
   1 tail). `escena.js` integrates the midline from it with the body length held constant (anchored at mid-body) and
   turns each cross-section rigidly with its tangent, so the organs, somas and synapses bend with the body. The table

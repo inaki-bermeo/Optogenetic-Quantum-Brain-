@@ -20,7 +20,7 @@ This effort is supported by Qollab & IonQ.
 ## Try it in one minute
 
 1. Press **Run** and choose **Built-in simulator** (free and instant). A short intro boots the lab: press **Start** and follow the five beats (Optogenetics → Nobel Prize 2026 → Light → Superposition → Collapse), or press **Esc** to skip.
-2. The laser targets **AVM**, a touch-sensing neuron. **Hold** the fire button (or **Space**) to charge the laser: the charge is the dose θ, and the meter shows the chance that the neuron fires, sin²(θ/2). Release to fire. A quick tap fires at full dose.
+2. The laser targets **AVM**, a touch-sensing neuron. **Hold** the fire button (or **Space**) to charge the laser: the charge is the dose θ, and the meter shows the chance that the neuron fires, sin²(θ/2). Release to fire. A quick tap fires at the set dose, which you can also pick by clicking or dragging the meter.
 3. Watch each circuit: the 10 neurons of the window pulse in superposition, then the measurement collapses them onto one, which fires the next circuit. The spike hops along the worm and leaves a trail.
 4. Move **Measure every τ** and compare **τ = 8** (the spike travels) with **τ = 2** (it barely moves: the Zeno effect).
 5. Press **C** to open the **circuit inspector**: the exact circuit of any step, gate by gate, next to the counts the backend returned.
@@ -223,7 +223,7 @@ The window is the neuron that fired plus its 9 neighbours with the most synapses
 
 **How it plays.** A single forward/backward drive adds each neuron's push and fades between steps, so AVA and AVB cancel each other like the real circuits that inhibit each other. The body wave runs tail → head when the worm backs up, as in real reversals. Every motion is a curvature profile along the body, which is what muscles produce: the body keeps its length and its organs bend with it.
 
-**Food.** *C. elegans* eats bacteria. Neon rods drift around the worm (green like GFP-labelled *E. coli* under the microscope, not to scale), and one of them is food. The worm stays anchored, so when it moves the world moves instead: crawling or a forward neuron brings the food closer and the bacteria flow past; a backward neuron pushes it away. When the cascade measures a smell or taste neuron (AWA, AWC, ASE), the food glows and the head turns towards it. When the food reaches the mouth, the pharynx pumps and the worm swallows it (achievement *First meal*), and a new one appears ahead.
+**Food.** *C. elegans* eats bacteria. Neon rods float still around the worm (green like GFP-labelled *E. coli* under the microscope, not to scale), and one of them, bigger, is food. A forward neuron moves the worm towards it and a backward neuron moves it back; when the behaviour ends, the worm returns to its place. When the cascade measures a smell or taste neuron (AWA, AWC, ASE), the food glows and the head turns towards it. A strong forward command (AVB, PVC) reaches the food: the pharynx pumps and the worm swallows it (achievement *First meal*), and a new one appears ahead.
 
 **What is simplified.**
 - Real *C. elegans* neurons are classical, and most do not even spike (AWA is an exception).
