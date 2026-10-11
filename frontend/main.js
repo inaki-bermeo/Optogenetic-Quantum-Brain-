@@ -302,6 +302,7 @@ async function fire(thetaCarga = null) {
   closeHelp();
   Object.assign(cascade, { running: true, stop: false, centers: [state.source], steps: [], conductas: [] });
   scene.ocupada = true; // sin reposo mientras corre
+  scene.inicioCiclo(); // los acercamientos y alejamientos de este disparo se suman
   circ.follow = true;
   $("fire-btn").disabled = true;
   $("fire-label").textContent = "Running circuits…";
@@ -376,6 +377,7 @@ async function fire(thetaCarga = null) {
     cascade.running = false;
     scene.ocupada = false;
     scene.marcarActividad();
+    scene.finCiclo(); // terminado el ciclo, el gusano vuelve a su distancia original
     sound.pararFondo();
     scene.setDrive(motor.d);
     setTimeout(() => { if (!cascade.running) { scene.setSwim(true); sound.musicaDuck(false); } }, 2500);

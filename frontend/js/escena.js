@@ -143,9 +143,12 @@ const POSTURA_MIN = 0.15; // por debajo de este |κ·L| una flexión se olvida
 // interactúa; el resto decora y deriva. El gusano está anclado: cuando avanza, son las bacterias las que
 // pasan hacia la cola (el fondo "fluye"), y la comida se acerca a la boca.
 const N_BACTERIAS = 240;
-const COMIDA_DIST = [1.25, 1.7]; // a cuánto queda la comida delante de la boca (unidades de escena); no se mueve
-const ESTOCADA = 2.0; // cuánto se desplaza el gusano por unidad de empuje de una neurona (js/conducta.js)
+const COMIDA_DIST = [2.5, 3.0]; // a cuánto queda la comida delante de la boca (unidades de escena); no se mueve
+const ESTOCADA = 2.3; // cuánto se desplaza el gusano por unidad de empuje de una neurona (js/conducta.js)
+const EMPUJE_COMER = 0.75; // una orden de avance así de fuerte (AVB, PVC) llega hasta la comida y se la come
 const ALCANCE = 0.3; // la boca "toca" la comida a esta distancia
+const QUEDARSE = 1.6; // segundos que el gusano se queda más cerca (o más lejos) antes de volver a su lugar
+const DESP_MAX = 3.5; // lo más lejos que lo llevan los empujes sumados de un ciclo del láser
 const BACT_GLSL_FRAG = /* glsl */`
   uniform float uK;
   varying vec3 vColor; varying float vBrillo; varying vec3 vN; varying vec3 vV;
@@ -883,7 +886,6 @@ export class WormScene {
         }
         if (!A.vuelta && A.t >= A.dur) {
           A.vuelta = true;
-          this._despObj.set(0, 0, 0); // vuelve a su lugar
           Object.assign(T, MOTION_REPOSO, { dir: T.dir });
           this.swim.target = 0;
           // la cascada sigue ya: el colapso siguiente ondula con el mismo shader que el cuerpo, así que
@@ -904,8 +906,9 @@ export class WormScene {
     Object.assign(this.motion, MOTION_REPOSO, { dir: this.motion.dir });
     Object.assign(this.motionT, MOTION_REPOSO, { dir: this.motion.dir });
     Object.assign(this.swim, { level: 0, target: 0, rampa: 0.9 });
-    this._despObj?.set(0, 0, 0);
-    if (!this._running) this.swimU.uDesp.value.set(0, 0, 0); // sin animación: vuelve de inmediato
+    // el desplazamiento (estocada) sigue por su cuenta: _animateComida lo trae de vuelta tras quedarse un rato;
+    // sin animación (lienzo oculto), vuelve de inmediato
+    if (!this._running) { this._despObj?.set(0, 0, 0); this.swimU.uDesp.value.set(0, 0, 0); }
     this._writeMotion(0);
     this._quitarHuevo();
     this.requestRender();
@@ -1070,24 +1073,44 @@ export class WormScene {
 
   /**
    * Empuje de una neurona (js/conducta.js): el gusano entero se desplaza hacia la comida (adelante) o se aleja
-   * (atrás) y, al terminar la conducta, vuelve a su lugar. Si la estocada llega a la comida, se la come.
+   * (atrás). Dentro de un ciclo del láser (inicioCiclo … finCiclo) los empujes se suman: el gusano guarda la
+   * posición a la que llegó y recién al terminar la cascada se queda un momento y vuelve a su lugar. Fuera de
+   * un ciclo, vuelve tras QUEDARSE segundos. Si llega a la comida, se la come.
    * Sin animación (movimiento reducido, nado apagado), una estocada que alcanza la come directamente.
    */
   acercarComida(empuje) {
     const C = this.comida;
     if (!C || !empuje || !this._despObj) return;
-    const largo = ESTOCADA * empuje;
-    if (largo > 0) {
-      if (C.estado !== "esperando") return;
-      const v = C.pos.clone().sub(this._boca0);
-      const d = v.length();
-      const llega = largo >= d - ALCANCE;
-      this._despObj.copy(v.setLength(llega ? d : largo));
-      if (!this.puedeActuar) { this._despObj.set(0, 0, 0); if (llega) this._comer(); }
+    const largo = ESTOCADA * Math.abs(empuje);
+    const obj = this.puedeActuar ? this._despObj : new THREE.Vector3(); // sin animación no se acumula
+    if (empuje > 0) {
+      const hayComida = C.estado === "esperando";
+      // hacia la comida desde donde está la boca ahora; si ya se la comió, sigue derecho hacia adelante (−x)
+      const v = hayComida ? C.pos.clone().sub(this._boca0).sub(obj) : new THREE.Vector3(-1, 0, 0);
+      const d = hayComida ? v.length() : Infinity;
+      const llega = hayComida && (empuje >= EMPUJE_COMER || largo >= d - ALCANCE);
+      obj.add(v.setLength(llega ? d : Math.max(0, Math.min(largo, d - ALCANCE - 0.15))));
+      if (!this.puedeActuar && llega) this._comer();
     } else {
-      this._despObj.set(-largo, 0, 0); // hacia atrás: hacia la cola (+x)
-      if (!this.puedeActuar) this._despObj.set(0, 0, 0);
+      obj.x += largo; // hacia atrás: hacia la cola (+x)
     }
+    if (obj.length() > DESP_MAX) obj.setLength(DESP_MAX);
+    this._quedarse = QUEDARSE;
+    this.requestRender();
+  }
+
+  /** Empieza un ciclo del láser (una cascada): parte desde su lugar y los empujes se van sumando. */
+  inicioCiclo() {
+    this._ciclo = true;
+    this._despObj?.set(0, 0, 0);
+    this.requestRender();
+  }
+
+  /** Termina el ciclo: el gusano se queda QUEDARSE segundos donde llegó y después vuelve a su lugar. */
+  finCiclo() {
+    this._ciclo = false;
+    this._quedarse = QUEDARSE;
+    if (!this._running) { this._despObj?.set(0, 0, 0); this.swimU.uDesp.value.set(0, 0, 0); }
     this.requestRender();
   }
 
@@ -1111,12 +1134,20 @@ export class WormScene {
     if (!C || !F) return false;
     let mueve = false;
     // desplazamiento del gusano entero: se acerca suave a su objetivo (la vuelta, más rápida)
+    // se acerca (o se aleja) y guarda esa posición mientras dure el ciclo del láser; al final se queda ahí
+    // QUEDARSE segundos para que se note la nueva distancia y vuelve
     const desp = this.swimU.uDesp.value;
     const falta = desp.distanceTo(this._despObj);
+    const vuelve = this._despObj.lengthSq() === 0;
     if (falta > 1e-3) {
-      const vuelve = this._despObj.lengthSq() === 0;
-      desp.lerp(this._despObj, Math.min(1, dt * (vuelve ? 2.6 : 1.8)));
+      desp.lerp(this._despObj, Math.min(1, dt * (vuelve ? 1.5 : 1.8)));
       if (falta < 2e-3) desp.copy(this._despObj);
+      mueve = true;
+    }
+    // durante un ciclo del láser guarda la posición; al terminar (y ya tragada la comida) cuenta y vuelve
+    if (!vuelve && falta < 0.05 && !this._ciclo && !(C.estado === "comiendo" && C.t < 0.6)) {
+      this._quedarse -= dt;
+      if (this._quedarse <= 0) this._despObj.set(0, 0, 0);
       mueve = true;
     }
     if (C.olor > 0) { C.olor = Math.max(0, C.olor - dt / 1.6); mueve = true; }
@@ -1132,7 +1163,8 @@ export class WormScene {
       pos.lerp(boca, u); // entra por la boca
       k *= 1 - u;
       mueve = true;
-      if (C.t > 2.2) this._nuevaComida();
+      // la nueva aparece cuando el gusano ya volvió a su lugar (si no, podría aparecer justo en su boca)
+      if (C.t > 2.2 && !this._ciclo && desp.lengthSq() < 0.01) this._nuevaComida();
     }
     const late = 0.5 + 0.5 * Math.sin(C.t * 2.4);
     F.cuerpo.rotation.set(0, 0, C.giro);

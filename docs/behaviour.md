@@ -48,15 +48,19 @@ Patterns match whole names, so `AS\d+` (motor neurons AS1–AS11) never matches 
   green like GFP-labelled *E. coli* under the microscope and some magenta (mCherry); they are not to scale (a 2 µm
   bacterium would be invisible). The bacteria stay where they are (they only tumble and jitter a little in place). One
   of them, bigger and brighter, is the food the worm interacts with:
-  - a forward push (AVB, PVC, PLM, B-type motor neurons, AIY…) moves the whole worm towards the food by 2 scene units per
-    unit of push (`ESTOCADA`), and a backward push (AVA, AVD, AVE, ALM, AVM, ASH, AIB…) moves it back towards the tail.
-    When the behaviour ends, the worm glides back to its place (`acercarComida(empuje)`, the `uDesp` offset that
-    `wormDeform` and `deform()` add to everything that bends with the body);
+  - the food sits 2.5–3 scene units ahead of the mouth. A forward push (AVB, PVC, PLM, B-type motor neurons, AIY…)
+    moves the whole worm towards it by 2.3 units per unit of push (`ESTOCADA`), and a backward push (AVA, AVD, AVE,
+    ALM, AVM, ASH, AIB…) moves it back towards the tail (`acercarComida(empuje)`, the `uDesp` offset that `wormDeform` and `deform()` add to
+    everything that bends with the body);
+  - within one laser shot (a whole cascade, `inicioCiclo` … `finCiclo`) the pushes add up: the worm keeps the position
+    each step leaves it in, so two forward commands bring it twice as close (at most 3.5 units from its start,
+    `DESP_MAX`). When the cascade ends it stays there for 1.6 s (`QUEDARSE`) so the final distance is visible, then
+    glides back to its original distance. Outside a cascade a single push holds for 1.6 s and returns;
   - a chemosensory neuron (AWA, AWC, ASE) makes the food glow, sends a ring from it (the smell) and turns the head
     towards it (`giro`), with a small forward push: chemotaxis;
-  - a strong forward push (AVB or PVC) reaches the food, 1.25–1.7 units ahead of the mouth: the worm swallows it (the
-    pharynx pumps), `on("comer")` plays the swallow sound and unlocks *First meal*, the worm goes back to its place and a
-    new bacterium appears ahead.
+  - a forward command at least as strong as AVB or PVC (push ≥ 0.75, `EMPUJE_COMER`) goes all the way to the food: the
+    worm swallows it (the pharynx pumps), `on("comer")` plays the swallow sound and unlocks *First meal*, a later forward push keeps
+    going straight ahead, and a new bacterium appears once the worm is back in its place.
 - **Motions are curvature, like real muscle.** Every motion is a curvature profile κ(s) along the body (s = 0 head,
   1 tail). `escena.js` integrates the midline from it with the body length held constant (anchored at mid-body) and
   turns each cross-section rigidly with its tangent, so the organs, somas and synapses bend with the body. The table
