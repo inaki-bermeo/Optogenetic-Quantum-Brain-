@@ -36,7 +36,7 @@ It serves the source tree directly. Reload the page after editing JS; restart th
 
 - The unit tests run with real Qiskit when it is installed. Otherwise they use the imitation, and the figure tests are skipped.
 - `TestReglasQollab` builds the upload folder in a temp dir and checks it: file limits, the `index.html` shape, allowed JS imports, literal data paths and no API keys.
-- The smoke test walks the intro by keyboard and skips it with Esc. It fires a charged shot and checks the achievement, opens the inspector with C, and checks the IonQ one-job lock, the QPU confirmation and a reduced-motion run.
+- The smoke test walks the intro by keyboard and skips it with Esc. It fires a charged shot and checks the achievement, opens the inspector with C, and checks the IonQ one-job lock, the QPU confirmation, a reduced-motion run and a phone run (touch hold-to-charge).
 
 ## Publish to Qollab
 
@@ -48,6 +48,13 @@ The repo is the source of truth. Changes go **repo → Qollab**, never the other
 4. Paste `PROJECT_CARD.md` into the project page.
 
 Never upload `tools/`, `tests/`, `docs/` or `.venv/`.
+
+## Phones and tablets
+
+The page has no `<meta name="viewport">` of its own, because Qollab pastes `index.html` into its own `<body>`. The mobile layout (≤ 980 px, portrait and landscape rules, 44 px touch targets) relies on Qollab's page providing a viewport meta. Check this once on a real phone. The smoke test emulates an iPhone 13 and checks:
+- the deck sits under the 3D view;
+- a touch hold-to-charge works;
+- the canvas has `touch-action: pan-y`.
 
 ## Other tools
 

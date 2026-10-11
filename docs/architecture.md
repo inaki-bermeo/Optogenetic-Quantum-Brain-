@@ -123,12 +123,39 @@ If the measured neuron has a known behaviour (`js/conducta.js`), the next step w
 
 ## Performance design
 
-- **The render loop runs only when the canvas can be seen.** It stops during the boot console, while the inspector is open, when the canvas is scrolled off-screen (IntersectionObserver) and when the tab is hidden. Otherwise a frame is drawn only when something changed. The idle swim wave is capped at 30 fps.
-- **One draw call each** for the 302 neurons (`InstancedMesh`) and the synapses (`LineSegments`). Colours come from a precomputed lookup table. The swim and the behaviour motions run in the vertex shader (`wormDeform`); `WormScene.deform()` repeats the same math in JS for picking, labels and camera flights. Picking projects 302 points; there is no raycasting.
-- **Python caches** the connectome, J, the windows, and each step circuit plus its transpiled version.
-- **matplotlib is loaded only if the inspector is opened.** The JS-drawn circuit appears instantly in the meantime.
-- **Audio** is suspended while the tab is hidden or the sound is off.
+- **The loop stops when nothing moves.** The canvas draws only when something changed. After about 0.5 s with nothing moving, the animation loop is removed entirely, and `requestRender()` or input brings it back.
+  - **The loop also stops when the canvas can't be seen:** during the boot console, while the inspector is open, when the canvas is off-screen (IntersectionObserver), and when the tab is hidden.
+  - **Idle rest.** After 20 s without input and with no cascade running (`scene.ocupada`), ambient motion (swimming, auto-rotate) stops, so an idle page draws nothing. Any `pointerdown`, `keydown` or `wheel` on the page calls `scene.marcarActividad()`.
+  - **Ambient motion** (swim, title orbit) renders at 30 fps; flights, the laser and the collapse render at full rate.
+- **Quality.**
+  - Auto starts on Medium. It drops when continuous animation stays under 28 fps, and moves up to High once if Medium holds 50 fps or more.
+  - Only consecutive full-rate frames are measured, because the 30 fps ambient cap says nothing about the GPU.
+  - Internal render pixels are capped per level: 2.1, 1.2 and 0.8 MP.
+  - Grain and vignette only on High (`.viewport[data-calidad]`). No idle swimming on Low.
+- **No shader recompiles.**
+  - The laser, collapse, trail and egg effects are built once and reused. Each effect is a group toggled as a whole, and the collapse halos grow on demand.
+  - Their shaders compile up front with `renderer.compileAsync`, so a cascade compiles nothing new.
+- **One draw call each** for the 302 neurons (`InstancedMesh`) and the synapses (`LineSegments`).
+  - Colours come from a precomputed lookup table.
+  - Collapse frames repaint only the 10 window neurons and their synapses (`_pintar`).
+  - The swim and the behaviour motions run in the vertex shader (`wormDeform`); `WormScene.deform()` repeats the same math in JS for picking, labels and camera flights.
+  - Picking projects 302 points; there is no raycasting.
+- **The cascade doesn't wait for decoration.** A behaviour releases the next step as soon as the worm starts returning to rest.
+- **Python.**
+  - Caches the connectome, J, the windows, and each step circuit plus its transpiled version.
+  - Quick calls go ahead of matplotlib ones, which carry a `vigente()` check and are skipped once nobody will see them.
+  - matplotlib loads only if the inspector stays open for 1 s.
+  - Circuit previews are debounced (300 ms), and circuit and figure caches are small LRUs.
+- **DOM.**
+  - The charge loop stops when full and writes the DOM only when a value changes.
+  - One `--dose` variable drives the dose meter and the button fill, through `transform` only.
+  - HUD animations use `Element.animate`, with no forced reflows.
+- **Audio.**
+  - Suspended while the tab is hidden or the sound is off.
+  - `latencyHint: "playback"`.
+  - A 2 s mono reverb impulse.
 - **The body file** is 316 KB: no normals (the page recomputes them) and 16-bit indices (`tools/optimize_glb.py`).
+- **Touch.** Hold-to-charge works with a finger. One-finger vertical swipes scroll the page (the canvas gets `touch-action: pan-y`), and a sideways drag or two fingers orbit. On screens up to 980 px the control deck sits right under the 3D view.
 
 ## Conventions
 
