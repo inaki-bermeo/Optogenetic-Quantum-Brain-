@@ -52,46 +52,70 @@ The simulation functions as both an educational platform and a scientific sandbo
 ![The Lab HUD and Circuit Scanner](https://raw.githubusercontent.com/inaki-bermeo/Optogenetic-Quantum-Brain-/main/docs/card/panel1.jpg)
 
 ---
-
 ## Theoretical Framework & Mathematical Formulation
 
-The physical mapping from biology to quantum computing relies on implementing the connectivty graph of the neurons to a random quantum walk, processed natively through Qiskit and ready to be implemented at the hardware level.
+The physical mapping from biology to quantum computing turns the connectivity graph of the neurons into a continuous-time quantum walk. It is built with Qiskit and runs on a simulator or on IonQ hardware.
 
-**1. Symmetrization & Spectral Normalization ($J$)**
-Chemical synapses are directional, but pure state unitary quantum evolution requires a Hermitian Hamiltonian. We symmetrize the real connectome data (Cook et al., 2019) by applying a logarithmic dampening to heavy-tailed synapse counts:
+**1. Symmetrization and spectral normalization ($J$)**
 
-$$W_{ij} = \log\left(1 + c_{i\rightarrow j} + c_{j\rightarrow i} + \max(g_{ij}, g_{ji})\right)$$
+Chemical synapses are directional, but the evolution $e^{-iHt}$ is unitary only if $H$ is Hermitian, so the coupling matrix must be symmetric. From the connectome data (Cook et al., 2019), let $c_{i\to j}$ be the number of chemical synapses from $i$ to $j$ and $g_{ij}$ the number of gap junctions. Two neurons are connected if they share at least one synapse of either kind, and every connection counts the same (binary weights). Here $\mathbb{1}[\cdot]$ is 1 when the condition holds and 0 otherwise:
 
-To define time in natural $1/\gamma$ units, the matrix is normalized by its largest eigenvalue, ensuring $\Vert{}J\Vert{}_2 = 1$:
+```math
+W_{ij} = \mathbb{1}\left[\, c_{i\to j} + c_{j\to i} + \max(g_{ij}, g_{ji}) > 0 \,\right]
+```
 
-$$J = \frac{W}{\lambda_{\max}(W)}$$
+The synapse direction and the number of synapses per connection are lost in this step. To measure time in natural $1/\gamma$ units, the matrix is divided by its largest eigenvalue ($\lambda_{\max}(W) \approx 32.8$), so that $\lVert J \rVert_2 = 1$:
 
-**2. The XY Hamiltonian & Excitation Conservation**
+```math
+J = \frac{W}{\lambda_{\max}(W)}
+```
+
+**2. The XY Hamiltonian and conservation of the excitation**
+
 Synaptic propagation is governed by an XY (hard-core boson) Hamiltonian:
 
-$$H = \gamma \sum_{i<j} J_{ij} \frac{X_i X_j + Y_i Y_j}{2} = \gamma \sum_{i<j} J_{ij}(\sigma_i^+ \sigma_j^- + \sigma_i^- \sigma_j^+)$$
+```math
+H = \gamma \sum_{i \lt j} J_{ij}\,\frac{X_i X_j + Y_i Y_j}{2}
+  = \gamma \sum_{i \lt j} J_{ij}\left(\sigma_i^+ \sigma_j^- + \sigma_i^- \sigma_j^+\right)
+```
 
-Crucially, this Hamiltonian commutes with the total number operator $[\hat{N}, H] = 0$. Since the system begins with a single excitation, dynamics are perfectly bounded within the single-excitation sector, exactly mirroring the Farhi and Gutmann continuous-time quantum walk (CTQW).
+This Hamiltonian commutes with the total number operator, $[\hat{N}, H] = 0$, so the number of excitations never changes. The laser acts on one qubit, so the state contains at most one excitation and stays in the sectors with 0 and 1 excitations. In the one-excitation sector $H = \gamma J$, which is exactly the continuous-time quantum walk of Farhi and Gutmann (1998) on the connectome graph.
 
-**3. Optogenetic Laser as a Rabi Rotation**
-A light pulse of intensity and duration $\theta = \Omega \tau$ operates as an $R_X(\theta)$ gate on the illuminated qubit. Assuming a short pulse approximation:
+**3. The optogenetic laser as a Rabi rotation**
 
-$$R_X(\theta)\vert{}0\rangle = \cos\left(\frac{\theta}{2}\right)\vert{}0\rangle - i \sin\left(\frac{\theta}{2}\right)\vert{}1\rangle$$
+A light pulse with Rabi frequency $\Omega$ and duration $t_p$ acts as an $R_X(\theta)$ gate on the illuminated qubit, with dose $\theta = \Omega t_p$. We treat the pulse as instantaneous, because it is short compared with the hopping time $1/\gamma$:
 
-By applying unitary evolution to this state, the analytical probability of finding the excitation at any neuron $k$ at time $t$ becomes our central exact result:
+```math
+R_X(\theta)\,|0\rangle = \cos\frac{\theta}{2}\,|0\rangle - i\,\sin\frac{\theta}{2}\,|1\rangle
+```
 
-$$P_k(t) = \sin^2\left(\frac{\theta}{2}\right) \left\vert{} \langle k \vert{} e^{-i\gamma J t} \vert{} j \rangle \right\vert{}^2$$
+so the neuron fires with probability $\sin^2(\theta/2)$. Evolving this state under $H$, the probability that the excitation is on neuron $k$ at time $t$, after the laser hit neuron $j$, is the exact result that every measured circuit is compared with:
 
-**4. Circuit Synthesis via Trotter-Suzuki & IonQ Native Compilation**
-Continuous evolution is approximated for gate-based quantum hardware using a second-order Strang splitting (Trotter-Suzuki). Each synapse jump is decomposed as:
+```math
+P_k(t) = \sin^2\frac{\theta}{2}\;\Big|\big[e^{-i\gamma J t}\big]_{kj}\Big|^2
+```
 
-$$\text{hop}(\alpha) = e^{-i\alpha(X_i X_j + Y_i Y_j)/2} = R_{XX}(\alpha) \cdot R_{YY}(\alpha)$$
+In a cascade step $J$ is the $10 \times 10$ block of the window (the neuron that fired and its 9 most connected neighbours). In later steps the neuron that fired starts fully excited ($\theta = \pi$).
 
-The Trotter operator error scales strictly as $\mathcal{O}(t^3 / r^2)$ driven by the commutators of adjacent synapses $\sum \Vert{}[h_a, h_b]\Vert{}$. During execution on IonQ backends, these gates natively compile to trapped-ion $ZZ(\theta)$ interactions, requiring zero SWAP overhead due to the hardware's all-to-all connectivity.
+**4. Circuit synthesis with Trotter–Suzuki and IonQ compilation**
 
-**5. Stratified Noise Modeling & Symmetry Post-Selection**
-To rapidly simulate noisy QPU dynamics, we implement a **Stratified Monte Carlo** estimator that separates the error-free trajectory $P_0$ from the noise combinations. 
-To mitigate physical errors, we apply **symmetry post-selection**: since the laser generates a maximum of 1 excitation, any bitstring measured with Hamming weight $\ge 2$ (multiple neurons firing) is an unphysical noise artifact. These shots are dynamically projected out $\left(\Pi_{\le 1} \rho \Pi_{\le 1}\right)$, drastically lowering the hardware's Total Variation Distance (TVD) from the ideal distribution.
+The evolution is approximated for gate-based hardware with a second-order (Strang) splitting. The $XX$ and $YY$ terms of one synapse commute, so each hop is exactly:
+
+```math
+\mathrm{hop}(\alpha) = e^{-i\alpha (X_i X_j + Y_i Y_j)/2} = R_{XX}(\alpha)\,R_{YY}(\alpha)
+```
+
+With $r$ Trotter slices the error is bounded by $O(t^3/r^2)$. It comes from the commutators between synapses that share a neuron, $\sum \lVert [h_a, h_b] \rVert$, and in practice the bound is loose. Qiskit builds the circuit with `PauliEvolutionGate` and `SuzukiTrotter(order=2)`. On IonQ each $R_{XX}$ or $R_{YY}$ is compiled to a native $ZZ$-type entangling gate plus single-qubit rotations, so one hop costs two $ZZ$ gates. The trapped ions have all-to-all connectivity, so no SWAP gates are needed.
+
+**5. Symmetry post-selection**
+
+One laser means at most one excitation, and $H$ conserves it. A noise-free shot therefore never has two neurons at 1. Any bitstring with Hamming weight $\ge 2$ is a hardware error, and we discard it and renormalize the rest:
+
+```math
+\rho \;\longrightarrow\; \frac{\Pi_{\le 1}\,\rho\,\Pi_{\le 1}}{\text{Tr}\left(\Pi_{\le 1}\,\rho\right)}
+```
+
+where $\Pi_{\le 1}$ projects onto the bitstrings with at most one 1. The page shows the share of valid shots of each step. In an earlier prototype that simulated Forte-like noise on a 6-neuron circuit, this step lowered the total variation distance (TVD) to the ideal distribution from 0.17 to 0.05.
 
 ---
 
