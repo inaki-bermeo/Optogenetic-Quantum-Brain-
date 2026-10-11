@@ -37,8 +37,9 @@ The code (comments, identifiers, JSON keys from Python) is in Spanish, and every
 | Name | Where | Meaning |
 | --- | --- | --- |
 | `escena`, `WormScene` | `js/escena.js` | The three.js scene |
-| `cuerpo`, `faringe` | `escena.js`, `gusano.glb` | Body and pharynx meshes |
-| `nado`, `swim` | `escena.js` | The swimming wave (vertex shader) |
+| `cuerpo`, `faringe`, `grinder`, `anillo`, `intestino`, `gonada`, `huevos` | `escena.js`, `gusano.glb` | Body and organ meshes (pharynx, its grinder, nerve ring, intestine, gonad, uterine eggs) |
+| `nado`, `swim` | `escena.js` | The crawling wave (a curvature wave along the body) |
+| `curva`, `kappa`, `uCurva` | `escena.js` | Curvature kinematics: κ(s) along the body, the integrated midline table and its texture |
 | `actuar`, `conducta`, `programa` | `escena.js`, `js/conducta.js` | Act out a behaviour; the behaviour table entry; its motion program (`reversa`, `avance`, `omega`, …). See [behaviour.md](behaviour.md) |
 | `Motor`, `empuje`, `setDrive` | `conducta.js`, `escena.js` | Forward/backward drive that the command neurons accumulate during a cascade |
 | `colapso`, `collapse` | `escena.js` | The superposition → measurement animation of one step |

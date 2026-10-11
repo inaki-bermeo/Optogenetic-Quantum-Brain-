@@ -58,7 +58,7 @@ This effort is supported by Qollab & IonQ.
   - *Misfire*: θ < π and no neuron fired;
   - *Long range*: the spike landed two synapses away;
   - *Reflex*, *Escape artist*, *First egg* and *Tug of war*: a touch neuron, ASH, an egg-laying neuron, or both forward and backward command neurons fired, and the worm reacted as the real one does (step 8).
-- **The worm** looks like a fluorescence micrograph: a translucent body with cuticle rings, the pharynx and the intestine inside, and a slow swimming wave that pauses while each circuit is measured.
+- **The worm** looks like a fluorescence micrograph of an adult hermaphrodite, built in Blender from the same midline as the 302 neurons (all of them sit inside it): six lips around the mouth, the pharynx with its two bulbs and grinder, the nerve ring, the segmented intestine, the U-shaped gonad arms with growing oocytes, embryos waiting in the uterus, the vulva and a whip-like tail. It crawls with a slow curvature wave that pauses while each circuit is measured.
 - **The worm acts.** When the measured neuron has a known role in the real animal, the worm acts it out before the next step: AVA backs it up, AVB drives it forward, ASH triggers an escape with an omega turn, MC pumps the pharynx, HSN lays an egg, RIS makes it stop. A chip and the "Worm behaviour" box in the scanner name the behaviour and its references. Each behaviour has its own soft sound, and for local ones (head, a body segment, the pharynx, the vulva) the camera glides in for a moment and returns to your view. Neurons with no known direct effect leave the worm still (see step 8).
 - **Sound** (toggle in the top bar):
   - the laser charges with a rising tone and fires with a falling chirp;
@@ -213,7 +213,7 @@ The window is the neuron that fired plus its 9 neighbours with the most synapses
 | RIS | sleep-like stop | Turek 2013, 2016 |
 | AIB, AIY, AIZ | tendencies: reverse, keep going, turn | Gray 2005; Gordus 2015; Li 2014 |
 
-**How it plays.** A single forward/backward drive adds each neuron's push and fades between steps, so AVA and AVB cancel each other like the real circuits that inhibit each other. The body wave runs tail → head when the worm backs up, as in real reversals.
+**How it plays.** A single forward/backward drive adds each neuron's push and fades between steps, so AVA and AVB cancel each other like the real circuits that inhibit each other. The body wave runs tail → head when the worm backs up, as in real reversals. Every motion is a curvature profile along the body, which is what muscles produce: the body keeps its length and its organs bend with it.
 
 **What is simplified.**
 - Real *C. elegans* neurons are classical, and most do not even spike (AWA is an exception).

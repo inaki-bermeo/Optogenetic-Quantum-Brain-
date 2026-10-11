@@ -107,10 +107,9 @@ The module instances are `scene` (WormScene), `sound` (Sonido), `juego` (Juego) 
 **Drawing.**
 - Neurons are one `InstancedMesh`; synapses are one `LineSegments`. Colours come from a 256-entry LUT.
 - `_pintar(values, neurons?, synapses?)` repaints everything, or only a subset (the collapse repaints only the 10 window neurons and their synapses each frame).
-- Every material that moves with the worm goes through `_sw(mat)`, which injects the swim shader (`SWIM_GLSL` / `wormDeform`). Shared uniforms live in `swimU`:
-  - `uSwimAmp`, `uSwimT`, `uSwimFase`, `uSwimK`, `uSwimX0`, `uSwimL`;
-  - `uCabeza`, `uFlex`, `uRelaja`, `uBend`, `uBrillo`.
-- `deform(p)` mirrors the same math in JS for picking, labels and camera flights. **Change both together.**
+- Every material that moves with the worm goes through `_sw(mat)` (or `_bodyMaterial`), which injects `SWIM_GLSL` / `wormDeform`. Motion is **curvature kinematics**: `_writeMotion` builds κ(s) from the eased `motion` values, `_integrarCurva` integrates the midline (constant length, anchored at mid-body) into a 64-sample table, and `_subirCurva` uploads it as the `uCurva` DataTexture. Shared uniforms in `swimU`: `uCurva`, `uCurvaX`, `uSwimT` (pump timing), `uBrillo`.
+- `deform(p)` reads the same table in JS for picking, labels and camera flights, so the two cannot drift apart.
+- Organs from the `.glb` are mapped by name (`ORGANOS`) to their own `_bodyMaterial` (`MATERIAL_ORGANO`); `vulva()` reads the model's `vulva_um` extra.
 - The body (`_bodyMaterial`) is a custom fluorescence shader: Fresnel rim, cuticle rings, grain, pharynx pumping.
 
 **Effects are pooled.**
