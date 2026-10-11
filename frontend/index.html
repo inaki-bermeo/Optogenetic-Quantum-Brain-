@@ -3,7 +3,8 @@
 <script type="module" src="main.js"></script>
 </head>
 <body>
-<!-- Intro en fases (js/intro.js): arranque → título → 3 escenas sobre el gusano real → HUD.
+<!-- Intro en fases (js/intro.js): arranque → título → 5 escenas (optogenética, Nobel 2026, luz, superposición,
+     colapso) sobre el gusano real → HUD.
      Es un diálogo modal: la página queda inerte detrás hasta entrar. -->
 <div id="intro" class="intro" data-fase="boot" role="dialog" aria-modal="true" aria-labelledby="intro-title" lang="en">
   <div class="intro-boot" id="intro-boot">
@@ -25,7 +26,7 @@
     <p class="brief-num" id="brief-num" aria-hidden="true">01</p>
     <h3 class="brief-title" id="brief-title">Light</h3>
     <p class="brief-text" id="brief-text" aria-live="polite"></p>
-    <div class="brief-pips" aria-hidden="true"><i></i><i></i><i></i></div>
+    <div class="brief-pips" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>
     <button type="button" class="btn-hud primary" id="intro-next">Next ▸</button>
   </div>
 

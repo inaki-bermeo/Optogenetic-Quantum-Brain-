@@ -35,6 +35,7 @@ The important decisions behind the project, with the reason for each and where i
 | --- | --- | --- |
 | **Sci-fi lab HUD**, one colour per meaning (cyan quantum, orange measured, yellow hardware, teal biology) | User's direction (references: basement.studio, Paisanos). The colour alone tells you what kind of thing you're looking at | `main.css`, [architecture.md](architecture.md) (PR #3) |
 | **Phased intro**: a boot console fed by real loading stages, then the title, then three beats on the real AVM circuit | Feels like a game, and teaches the three ideas (light, superposition, collapse) using real data | `js/intro.js` (PR #3) |
+| **Two context beats before the physics**: what optogenetics is, and the 2026 Nobel Prize in Physiology or Medicine (Nagel, Hegemann, Deisseroth) | The project borrows its premise from optogenetics, which had just won the Nobel; Nagel's 2005 paper used it in *C. elegans*, the worm on screen | `js/intro.js` |
 | **Accessibility is a requirement**: keyboard-only paths, the intro as a modal dialog, live regions, a table behind every chart, reduced motion, contrast of at least 5.5:1 | Hackathon rule and basic quality | everywhere; checked by the e2e smoke test |
 | **On phones, the control deck sits right under the 3D view**; one finger scrolls the page, two fingers orbit | The worm is long and horizontal; the Fire button must be reachable without scrolling past everything | `main.css` (≤ 980 px), `escena.js` (PR #5) |
 

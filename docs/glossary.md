@@ -49,7 +49,7 @@ The code (comments, identifiers, JSON keys from Python) is in Spanish, and every
 | `calidad` (`alta`/`media`/`baja`) | `escena.js` `QUALITY`, `data-calidad` | Graphics quality: High / Medium / Low |
 | `Carga`, `cargando` | `js/juego.js` | Hold-to-charge controller for the laser dose θ |
 | `Juego`, `logro(s)`, `racha`, `descubiertas` | `js/juego.js` | Game layer: achievements, streak, neurons discovered |
-| `Intro`, `escena0..2`, `preparado`, `terminar` | `js/intro.js` | The phased intro: boot → title → three beats → HUD |
+| `Intro`, `ESCENAS`, `accion` (`_orbita`, `_luz`, `_superposicion`, `_colapso`), `preparado`, `terminar` | `js/intro.js` | The phased intro: boot → title → five beats (optogenetics, Nobel 2026, light, superposition, collapse) → HUD |
 | `Sonido`, `medicion`, `disparo`, `musica` | `js/sonido.js` | Web Audio engine: the measurement sound, the fired neuron's bell, the ambient music |
 | `enCola`, `vigente` | `js/python.js` | The Pyodide call queue; the "is this call still wanted?" check for slow (matplotlib) calls |
 | `respirar` | `js/python.js` | Yield one frame before a long Python call, so the UI can paint |

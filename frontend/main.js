@@ -4,7 +4,8 @@
 
 // Optogenetic Quantum Brain · Qollab page (JS / Qiskit), styled as a sci-fi lab HUD
 //
-// Intro (js/intro.js): boot console while Python loads → title → three beats on the real scene.
+// Intro (js/intro.js): boot console while Python loads → title → five beats (optogenetics, Nobel 2026, then three on the
+// real scene).
 // HUD: the laser RX(θ) excites a neuron (hold to charge θ, tap to fire at the menu dose) and every step of
 //   the spike cascade is a 10-qubit Qiskit circuit (the neuron that fired + its 9 most connected
 //   neighbours) run on the selected `backend`. Measuring collapses the walk onto one neuron, which fires

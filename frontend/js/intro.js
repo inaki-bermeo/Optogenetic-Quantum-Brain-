@@ -1,23 +1,35 @@
 // Intro en fases, como el arranque de un videojuego:
 //   1. arranque: líneas de consola que aparecen a medida que init() realmente termina cada etapa;
-//   2. título sobre el gusano 3D en vivo (órbita lenta) y PRESS START (desbloquea el audio);
-//   3. tres escenas sobre la escena real: luz (láser en AVM) → superposición (su ventana de 10
-//      qubits, con las probabilidades ideales del circuito real) → colapso (una neurona dispara);
+//   2. título sobre el gusano 3D en vivo (órbita lenta) y PRESS START (desbloquea el audio si hacía falta);
+// La música (ambiente submarino + piano suave) se programa desde el arranque: suena apenas el navegador lo
+// permite, y el piano se desvanece al terminar la intro.
+//   3. dos escenas de contexto (qué es la optogenética y el Nobel de Medicina 2026), con el gusano en
+//      órbita lenta, y tres sobre la escena real: luz (láser en AVM) → superposición (su ventana de
+//      10 qubits, con las probabilidades ideales del circuito real) → colapso (una neurona dispara);
 //   4. el HUD entra desde los bordes y el foco va al botón de disparo.
 // Esc o "Skip intro" saltan en cualquier momento. Con prefers-reduced-motion no hay animaciones
 // ni vuelos de cámara: sólo el texto.
 
 import { REDUCED, sleep, T_COLAPSO } from "./util.js";
 
+// `accion` es el método que mueve la escena real en cada una (_orbita, _luz, _superposicion, _colapso)
 const ESCENAS = [
-  { num: "01", titulo: "Light",
-    texto: "A light pulse hits neuron <b>AVM</b>. In this model that pulse is a quantum gate, <b>RX(θ)</b>, " +
-      "that rotates the neuron's qubit from rest towards active." },
+  { titulo: "Optogenetics", accion: "orbita",
+    texto: "Optogenetics gives chosen neurons a light-sensitive protein from algae, <b>channelrhodopsin</b>. " +
+      "A flash of blue light opens it and the neuron fires, so scientists can switch brain circuits on and off " +
+      "and watch what the animal does." },
+  { titulo: "Nobel Prize 2026", accion: "orbita",
+    texto: "The 2026 Nobel Prize in Physiology or Medicine went to <b>Georg Nagel</b>, <b>Peter Hegemann</b> and " +
+      "<b>Karl Deisseroth</b> for light-gated ion channels and optogenetics. In 2005 Nagel's team used it to make " +
+      "<b><i>C. elegans</i></b> move with light: the same worm you see here." },
+  { titulo: "Light", accion: "luz",
+    texto: "Now make the light quantum. A pulse hits neuron <b>AVM</b>, and that pulse is a quantum gate, " +
+      "<b>RX(θ)</b>, that rotates the neuron's qubit from rest towards active." },
   // auto: si la persona no sigue, la escena pasa sola tras esos ms (no con prefers-reduced-motion)
-  { num: "02", titulo: "Superposition", auto: 8000,
+  { titulo: "Superposition", accion: "superposicion", auto: 8000,
     texto: "The excitation spreads as a wave over AVM and its 9 most connected neighbours. Inside the " +
       "<b>10-qubit circuit</b> it is in all of them at once." },
-  { num: "03", titulo: "Collapse",
+  { titulo: "Collapse", accion: "colapso",
     texto: "Measuring the circuit picks <span class=\"a\">one neuron</span>. It fires, and becomes the centre of the " +
       "next circuit. Every jump you will see is a real measurement." },
 ];
@@ -30,6 +42,8 @@ export class Intro {
   constructor(opts) {
     this.o = opts;
     this.el = document.getElementById("intro");
+    // una marca por escena (el número de escenas lo decide la tabla, no el HTML)
+    document.querySelector("#intro-brief .brief-pips").innerHTML = ESCENAS.map(() => "<i></i>").join("");
     this.fase = "boot";
     this.escena = -1;
     this.listo = false;
@@ -38,6 +52,9 @@ export class Intro {
     this._bloquear(true);
     this.o.scene.setPaused(true);
     this._bind();
+    // música desde el arranque: suena altiro si el navegador lo permite (p. ej. tras el clic en Run de
+    // Qollab); si no, queda lista y empieza con el primer clic o tecla
+    this.o.sound.musicaTemprana({ piano: true, intenso: true });
   }
 
   _bind() {
@@ -88,6 +105,8 @@ export class Intro {
     if (!REDUCED) setTimeout(() => t.classList.add("glitch"), 700);
     this.o.scene.setPaused(false);
     if (!REDUCED) this.o.scene.setCinematic(true);
+    this.o.sound.musicaTemprana({ piano: true, intenso: true }); // al repetir la intro, el piano vuelve
+    this.o.sound.tituloGolpe(); // el título llega con un golpe (si el audio ya suena)
     const b = document.getElementById("intro-start");
     b.innerHTML = "<span>Press start</span>";
     b.focus();
@@ -98,8 +117,7 @@ export class Intro {
     if (this.fase !== "titulo") return;
     const s = this.o.sound;
     if (s.on && s.activar()) { s.ui?.("start"); s.musicaOn(); }
-    this.o.scene.setCinematic(false);
-    this._fase("brief");
+    this._fase("brief"); // el gusano sigue en órbita lenta durante las escenas de contexto
     this.siguiente();
   }
 
@@ -114,7 +132,7 @@ export class Intro {
     box.classList.remove("anim");
     void box.offsetWidth; // reinicia la animación de entrada del texto
     box.classList.add("anim");
-    $("brief-num").textContent = e.num;
+    $("brief-num").textContent = String(this.escena + 1).padStart(2, "0");
     $("brief-title").textContent = e.titulo;
     $("brief-text").innerHTML = e.texto;
     box.querySelectorAll(".brief-pips i").forEach((p, i) => p.classList.toggle("on", i <= this.escena));
@@ -123,35 +141,42 @@ export class Intro {
     this.o.sound.ui?.("select");
     if (e.auto && !REDUCED) setTimeout(() => { if (turno === this._turno) this.siguiente(); }, e.auto);
     try {
-      await this[`_escena${this.escena}`](turno);
+      await this[`_${e.accion}`](turno);
     } catch (err) {
       console.log(`intro: ${err.message}`);
     }
   }
 
-  // --- escena 1: el láser
-  async _escena0() {
+  // --- contexto (optogenética, Nobel): el gusano real en órbita lenta; se precarga el circuito de AVM
+  async _orbita() {
+    this._demo ??= this.o.demo();
+    if (!REDUCED) this.o.scene.setCinematic(true);
+  }
+
+  // --- el láser
+  async _luz() {
     const { scene, sound } = this.o;
-    this._demo = this.o.demo(); // el circuito real de AVM (ya en caché por prefetchPreview)
+    scene.setCinematic(false);
+    this._demo ??= this.o.demo(); // el circuito real de AVM (ya en caché por prefetchPreview)
     const d = await this._demo;
     if (!REDUCED) await scene.flyTo(d.fuente, { dur: 1400, dist: 10 });
     scene.fireLaser(d.fuente, 1);
     sound.laser(1);
   }
 
-  // --- escena 2: superposición (larga: el colapso llega con la escena 3)
-  async _escena1() {
+  // --- superposición (larga: el colapso llega con la escena siguiente)
+  async _superposicion() {
     const d = await this._demo;
     const { scene } = this.o;
     scene.setHighlight(d.ventana_indices);
     // la superposición late hasta que la persona sigue; si no sigue, se pasa sola al colapso (8 s)
     if (!REDUCED) {
-      this._colapso = scene.collapse(d.ventana_indices, d.ideal_marginales, this._sortear(d), { superposition: 600, collapse: T_COLAPSO });
+      this._promColapso = scene.collapse(d.ventana_indices, d.ideal_marginales, this._sortear(d), { superposition: 600, collapse: T_COLAPSO });
     }
   }
 
-  // --- escena 3: colapso (una neurona sorteada con las probabilidades ideales del circuito)
-  async _escena2(turno) {
+  // --- colapso (una neurona sorteada con las probabilidades ideales del circuito)
+  async _colapso(turno) {
     const d = await this._demo;
     const { scene, sound } = this.o;
     const spike = this._spike ?? this._sortear(d);
@@ -160,7 +185,7 @@ export class Intro {
     if (REDUCED) return;
     scene.collapseNow();
     this.o.barrido?.();
-    await this._colapso;
+    await this._promColapso;
     if (turno !== this._turno) return;
     sound.disparo(this.o.nota(spike), true);
     this.o.mostrarSpike?.(spike);
@@ -187,6 +212,8 @@ export class Intro {
     document.removeEventListener("keydown", this._teclaTitulo);
     const s = this.o.sound;
     if (s.on && s.activar()) { s.ui?.("confirm"); s.musicaOn(); }
+    s.pianoOff(); // el piano es de la intro: se desvanece y queda el ambiente submarino
+    s.musicaIntroFin(); // y la música baja a su versión sutil, "bajo el agua"
     this.o.scene.setCinematic(false);
     this.el.classList.add("fin");
     this._bloquear(false);
@@ -201,7 +228,7 @@ export class Intro {
 
   /** Repetir la intro desde el título (menú de ajustes). */
   repetir() {
-    Object.assign(this, { fase: "boot", escena: -1, terminada: false, _spike: null, _turno: this._turno + 1 });
+    Object.assign(this, { fase: "boot", escena: -1, terminada: false, _spike: null, _demo: null, _turno: this._turno + 1 });
     this.el.hidden = false;
     this.el.classList.remove("fin");
     this._bloquear(true);

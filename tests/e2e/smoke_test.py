@@ -35,7 +35,7 @@ def entrar(pag, completa=False, out=None):
             pag.wait_for_timeout(1800)
             pag.screenshot(path=str(out / "0_titulo.png"), **SHOT)
         pag.keyboard.press("Enter")  # PRESS START
-        for k in range(3):  # las tres escenas: luz, superposición, colapso
+        for k in range(5):  # optogenética, Nobel 2026, luz, superposición, colapso
             pag.wait_for_function(f"document.getElementById('brief-num').textContent === '0{k + 1}'", timeout=20000)
             pag.wait_for_timeout(1500)
             if out:

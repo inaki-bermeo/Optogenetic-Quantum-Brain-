@@ -19,7 +19,7 @@ This effort is supported by Qollab & IonQ.
 
 ## Try it in one minute
 
-1. Press **Run** and choose **Built-in simulator** (free and instant). A short intro boots the lab: press **Start** and follow the three beats (Light → Superposition → Collapse), or press **Esc** to skip.
+1. Press **Run** and choose **Built-in simulator** (free and instant). A short intro boots the lab: press **Start** and follow the five beats (Optogenetics → Nobel Prize 2026 → Light → Superposition → Collapse), or press **Esc** to skip.
 2. The laser targets **AVM**, a touch-sensing neuron. **Hold** the fire button (or **Space**) to charge the laser: the charge is the dose θ, and the meter shows the chance that the neuron fires, sin²(θ/2). Release to fire. A quick tap fires at full dose.
 3. Watch each circuit: the 10 neurons of the window pulse in superposition, then the measurement collapses them onto one, which fires the next circuit. The spike hops along the worm and leaves a trail.
 4. Move **Measure every τ** and compare **τ = 8** (the spike travels) with **τ = 2** (it barely moves: the Zeno effect).
@@ -36,10 +36,14 @@ This effort is supported by Qollab & IonQ.
 
 - **Boot.** A console types each real loading stage as it completes: the Python core, the connectome, the body mesh and the backend.
 - **Title.** The live worm orbits slowly behind the title.
+- **Two beats of context**, with the worm slowly orbiting:
+  - *Optogenetics:* a light-sensitive protein from algae, channelrhodopsin, lets a flash of blue light fire chosen neurons.
+  - *Nobel Prize 2026:* the Nobel Prize in Physiology or Medicine went to Georg Nagel, Peter Hegemann and Karl Deisseroth for light-gated ion channels and optogenetics. In 2005 Nagel's team made *C. elegans*, the worm on screen, move with light.
 - **Three beats on the real data**, using the actual circuit of AVM:
   - *Light:* the camera flies in and the laser fires.
   - *Superposition:* its 10-qubit window glows with the circuit's ideal probabilities.
   - *Collapse:* one neuron is drawn from those probabilities and fires.
+- **Music from the start:** the title lands with a deep hit and the intro music comes in strong, a piano over the ambience (as soon as the browser allows sound, at the latest on *Press start*). When the HUD comes in, the piano fades out and the music sinks back into a subtle underwater ambience.
 - Then the HUD slides in from the edges. **Esc** skips the intro at any time, and it can be replayed from the settings menu.
 
 ### The lab HUD
@@ -307,7 +311,8 @@ It also walks through the real steps needed to take the physics to hardware: Tro
   - connectome from Cook et al., *Nature* 571, 63 (2019), via OpenWorm c302;
   - neuron positions from OpenWorm CElegansNeuroML;
   - touch reflex circuit from Chalfie et al. (1985);
-  - optogenetics in *C. elegans*: Nagel et al. (2005);
+  - optogenetics in *C. elegans*: Nagel, G. et al., *Light activation of channelrhodopsin-2 in excitable cells of* Caenorhabditis elegans *triggers rapid behavioral responses*, Current Biology 15, 2279–2284 (2005);
+  - the 2026 Nobel Prize in Physiology or Medicine: [nobelprize.org press release](https://www.nobelprize.org/prizes/medicine/2026/press-release/);
   - neuron → behaviour table from lesion and optogenetics studies (Chalfie 1985, Gray 2005, Haspel 2010, Leifer 2011, Stirman 2011 and others, listed in `docs/behaviour.md`).
 - **Sound:** synthesised live with the Web Audio API, adapted from the team's own DSP engine.
 - **Libraries:** Qiskit, NumPy, SciPy, matplotlib and three.js.

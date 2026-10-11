@@ -13,7 +13,12 @@
 //   * música:         ambiente "submarino" generativo, constante y muy suave: acordes lentos de la misma
 //                     escala (La mayor pentatónica) apagados por un filtro que se mueve como el agua,
 //                     un oleaje de ruido grave, burbujas lejanas de vez en cuando y reverberación.
-//                     Baja de volumen durante la medición para no tapar los sonidos importantes.
+//                     Baja de volumen durante la medición para no tapar los sonidos importantes;
+//   * piano (intro):  sobre el ambiente, un piano toca frases lentas con notas del acorde que suena
+//                     (y de la misma escala), sólo mientras dura la intro; se desvanece al empezar el juego.
+//   * modo intro:     la intro empieza intensa: la música entra en ~1 s, más fuerte y más abierta (el filtro
+//                     "bajo el agua" casi no actúa), el piano abre con un arpegio y el título llega con un
+//                     golpe (boom grave + brillo). Al empezar el juego todo baja a la versión sutil y sumergida.
 // Los navegadores sólo permiten audio después de un gesto del usuario: el contexto se crea con el
 // primer gesto (PRESS START en la intro, o el primer clic/tecla).
 
@@ -32,7 +37,8 @@ export class Sonido {
     this.ctx = null;
     this.on = true;
     this.fondo = null;
-    this.musica = { on: false, vol: 0.5, duck: false, oculto: false, timers: [], voces: [], nodos: null, acorde: 0 };
+    this.musica = { on: false, vol: 0.5, duck: false, oculto: false, timers: [], voces: [], nodos: null, acorde: 0,
+      piano: null, intenso: false };
   }
 
   /** Crea (o reanuda) el contexto de audio. Llamar dentro de un gesto del usuario. */
@@ -49,9 +55,78 @@ export class Sonido {
       this.master = this.ctx.createGain();
       this.master.gain.value = 0.7;
       this.master.connect(comp).connect(this.ctx.destination);
+      this.ctx.addEventListener("statechange", () => { if (this.ctx.state === "running") this._desbloqueado = true; });
     }
     if (this.ctx.state === "suspended") this.ctx.resume();
     return true;
+  }
+
+  /** ¿El motor de audio está sonando? (antes del primer gesto el navegador lo deja suspendido) */
+  get sonando() { return !!(this.ctx && this.ctx.state === "running"); }
+
+  /**
+   * Intenta que la música suene apenas abre la página. Si el navegador todavía no lo permite (no hubo
+   * gesto), el contexto queda suspendido: la música ya está programada y empieza sola con el primer
+   * clic o tecla (PRESS START incluido), porque activar() lo reanuda.
+   */
+  musicaTemprana({ piano = false, intenso = false } = {}) {
+    if (!this.on || !this.activar()) return;
+    if (intenso && !this.musica.intenso) {
+      this.musica.intenso = true;
+      // si la música ya sonaba (p. ej. al repetir la intro), sube y se abre
+      const N = this.musica.nodos;
+      if (N) { this._aplicarNivel(0.3); N.filtro.frequency.setTargetAtTime(1700, this.ctx.currentTime, 0.3); }
+    }
+    this.musicaOn();
+    if (piano) this.pianoOn();
+  }
+
+  /**
+   * Golpe del título: boom grave que cae, un soplo de ruido y un acorde brillante que queda sonando.
+   * Sólo si el audio ya suena (si no, el "start" de PRESS START cumple ese papel).
+   */
+  tituloGolpe() {
+    if (!this.sonando || !this.on) return;
+    const ctx = this.ctx, t0 = ctx.currentTime + 0.02;
+    const rev = this.musica.nodos?.rev;
+    const boom = this._osc("sine", 70, t0);
+    boom.frequency.exponentialRampToValueAtTime(34, t0 + 1.4);
+    const gb = this._env(t0, 0.55, 0.012, 0.45, t0 + 2.5);
+    boom.connect(gb).connect(this.master);
+    boom.start(t0); boom.stop(t0 + 2.6);
+    // soplo: ruido filtrado que se abre
+    const n = Math.floor(ctx.sampleRate * 1.6);
+    const buf = ctx.createBuffer(1, n, ctx.sampleRate);
+    const d = buf.getChannelData(0);
+    for (let i = 0; i < n; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / n, 2);
+    const ruido = ctx.createBufferSource();
+    ruido.buffer = buf;
+    const bp = ctx.createBiquadFilter();
+    bp.type = "lowpass";
+    bp.frequency.setValueAtTime(400, t0);
+    bp.frequency.exponentialRampToValueAtTime(5000, t0 + 0.5);
+    const gr = this._env(t0, 0.16, 0.02, 0.35, t0 + 1.6);
+    ruido.connect(bp).connect(gr).connect(this.master);
+    if (rev) gr.connect(rev);
+    ruido.start(t0);
+    // acorde brillante (La mayor alto) que se queda en la reverberación
+    [880, 1108.73, 1318.51, 1760].forEach((f, i) => {
+      const o = this._osc("triangle", f, t0 + 0.03 * i);
+      const g = this._env(t0 + 0.03 * i, 0.05 / (1 + i * 0.3), 0.02, 1.1, t0 + 4.5);
+      o.connect(g).connect(this.master);
+      if (rev) g.connect(rev);
+      o.start(t0 + 0.03 * i); o.stop(t0 + 4.6);
+    });
+  }
+
+  /** Sale del modo intro: la música baja a su nivel sutil y vuelve a sonar "bajo el agua". */
+  musicaIntroFin() {
+    const M = this.musica;
+    if (!M.intenso) return;
+    M.intenso = false;
+    this._aplicarNivel(3);
+    const N = M.nodos;
+    if (N && this.ctx) N.filtro.frequency.setTargetAtTime(640, this.ctx.currentTime, 1.5);
   }
 
   setOn(v) {
@@ -68,7 +143,15 @@ export class Sonido {
     }
   }
 
-  get listo() { return !!(this.on && this.ctx && this.ctx.state !== "closed"); }
+  /**
+   * ¿Se pueden programar efectos? Con el contexto suspendido sólo si ya hubo un gesto (se reanuda enseguida):
+   * así los efectos de antes del primer clic (los "tick" de la consola de arranque) no quedan encolados
+   * para sonar todos juntos al desbloquear el audio.
+   */
+  get listo() {
+    if (!(this.on && this.ctx && this.ctx.state !== "closed")) return false;
+    return this.ctx.state === "running" || this._desbloqueado || !!navigator.userActivation?.hasBeenActive;
+  }
 
   _osc(tipo, f, t0) {
     const o = this.ctx.createOscillator();
@@ -366,13 +449,15 @@ export class Sonido {
   /** Enciende el ambiente submarino (después de un gesto del usuario). */
   musicaOn() {
     const M = this.musica;
-    if (!this.listo || M.on || M.vol <= 0) return;
+    // la música sí se programa con el contexto suspendido (empieza sola al desbloquearse el audio)
+    if (!this.on || !this.ctx || this.ctx.state === "closed" || M.on || M.vol <= 0) return;
     M.on = true;
     const ctx = this.ctx, t0 = ctx.currentTime + 0.05;
     // cadena: voces → filtro "bajo el agua" (con vaivén) → seco + reverb → volumen → master
     const salida = ctx.createGain();
     salida.gain.setValueAtTime(0.0001, t0);
-    salida.gain.exponentialRampToValueAtTime(this._musicaNivel(), t0 + 6); // entra muy de a poco
+    // en el juego entra muy de a poco; en la intro, en ~1 s y fuerte
+    salida.gain.exponentialRampToValueAtTime(this._musicaNivel(), t0 + (M.intenso ? 1.0 : 6));
     // sin graves inaudibles en parlantes de notebook (sólo gastan volumen)
     const corte = ctx.createBiquadFilter();
     corte.type = "highpass";
@@ -380,7 +465,7 @@ export class Sonido {
     salida.connect(corte).connect(this.master);
     const filtro = ctx.createBiquadFilter();
     filtro.type = "lowpass";
-    filtro.frequency.value = 640;
+    filtro.frequency.value = M.intenso ? 1700 : 640; // intro: casi sin filtro, más presente
     filtro.Q.value = 0.7;
     const vaiven = this._osc("sine", 0.045, t0); // el filtro se abre y cierra cada ~22 s, como una corriente
     const vg = ctx.createGain();
@@ -411,7 +496,9 @@ export class Sonido {
   musicaOff() {
     const M = this.musica;
     if (!M.on) return;
+    this.pianoOff(0.3);
     M.on = false;
+    M.proximo = 0;
     M.timers.forEach(clearTimeout);
     M.timers = [];
     const N = M.nodos, t = this.ctx.currentTime;
@@ -450,35 +537,44 @@ export class Sonido {
       this.ctx.suspend();
     } else if (this.on) {
       this.ctx.resume();
-      if (M.on && !M.timers.length) { this._siguienteAcorde(); this._burbujas(); }
+      if (M.on && !M.timers.length) { this._siguienteAcorde(); this._burbujas(); if (M.piano) this._frasePiano(); }
     }
     this._aplicarNivel();
   }
 
   _musicaNivel() {
     const M = this.musica;
-    return Math.max(0.0001, 1.8 * Math.pow(M.vol, 1.6) * (M.duck ? 0.25 : 1) * (M.oculto ? 0 : 1));
+    return Math.max(0.0001, 1.8 * Math.pow(M.vol, 1.6) * (M.duck ? 0.25 : 1) * (M.oculto ? 0 : 1) * (M.intenso ? 1.8 : 1));
   }
 
-  _aplicarNivel() {
+  _aplicarNivel(tau = null) {
     const N = this.musica.nodos;
     if (!N || !this.ctx) return;
     const t = this.ctx.currentTime;
     N.salida.gain.cancelScheduledValues(t);
-    N.salida.gain.setTargetAtTime(this._musicaNivel(), t, this.musica.duck ? 0.4 : 1.5);
+    N.salida.gain.setTargetAtTime(this._musicaNivel(), t, tau ?? (this.musica.duck ? 0.4 : 1.5));
   }
 
   /** Acordes lentos (A – F#m – D – E), apagados y con voces levemente desafinadas; cambian cada ~14 s. */
   _siguienteAcorde() {
     const M = this.musica;
     if (!M.on) return;
+    // Se programa con el reloj de audio, no con el del navegador: si el audio está suspendido (todavía sin
+    // gesto, o pestaña oculta) ese reloj se detiene y el acorde siguiente espera; así nunca se apilan.
+    const ahora = this.ctx.currentTime;
+    if (M.proximo && ahora < M.proximo - 0.25) {
+      M.timers.push(setTimeout(() => this._siguienteAcorde(), Math.max(250, (M.proximo - ahora) * 1000)));
+      return;
+    }
     const ACORDES = [
       [110.0, 164.81, 220.0, 277.18], // La
       [92.5, 138.59, 185.0, 220.0], // Fa# menor
       [73.42, 110.0, 146.83, 185.0], // Re
       [82.41, 123.47, 164.81, 207.65], // Mi
     ];
-    const ctx = this.ctx, t0 = ctx.currentTime + 0.05, dur = 14, fade = 6;
+    const ctx = this.ctx, t0 = Math.max(ctx.currentTime + 0.05, M.proximo || 0), dur = 14;
+    const fade = M.proximo ? 6 : M.intenso ? 1.2 : 6; // el primer acorde de la intro entra rápido
+    M.proximo = t0 + dur;
     const notas = ACORDES[M.acorde % ACORDES.length];
     M.acorde++;
     const voz = [];
@@ -500,13 +596,14 @@ export class Sonido {
     });
     M.voces.push(voz);
     if (M.voces.length > 3) M.voces.shift();
-    M.timers.push(setTimeout(() => this._siguienteAcorde(), dur * 1000));
+    M.timers.push(setTimeout(() => this._siguienteAcorde(), (M.proximo - ctx.currentTime) * 1000));
   }
 
   /** Burbujas lejanas: de vez en cuando, un "blup" agudo y muy suave que sube de tono. */
   _burbujas() {
     const M = this.musica;
     if (!M.on) return;
+    if (!this.sonando) { M.timers.push(setTimeout(() => this._burbujas(), 1000)); return; }
     const ctx = this.ctx, t0 = ctx.currentTime + 0.05;
     const n = 1 + Math.floor(Math.random() * 3);
     for (let k = 0; k < n; k++) {
@@ -527,5 +624,96 @@ export class Sonido {
       o.stop(t + 0.12);
     }
     M.timers.push(setTimeout(() => this._burbujas(), 5000 + Math.random() * 9000));
+  }
+
+  // ------------------------------------------------------------------ piano de la intro
+  /** Piano suave sobre el ambiente (sólo en la intro). Necesita la música encendida. */
+  pianoOn() {
+    const M = this.musica;
+    if (!M.on || !M.nodos || M.piano) return;
+    const ctx = this.ctx;
+    // el piano no pasa por el filtro "bajo el agua": suena claro pero lejos (bastante reverberación)
+    const bus = ctx.createGain();
+    bus.gain.value = 0.0001;
+    bus.gain.setTargetAtTime(M.intenso ? 1.35 : 1, ctx.currentTime, M.intenso ? 0.15 : 1.2);
+    const tono = ctx.createBiquadFilter();
+    tono.type = "lowpass";
+    tono.frequency.value = 2600;
+    const seco = ctx.createGain(); seco.gain.value = 0.45;
+    const humedo = ctx.createGain(); humedo.gain.value = 0.8;
+    bus.connect(tono);
+    tono.connect(seco).connect(M.nodos.salida);
+    tono.connect(humedo).connect(M.nodos.rev);
+    M.piano = { bus, paso: 0, abrir: M.intenso };
+    // en la intro el piano abre casi de inmediato con un arpegio; si no, entra al poco rato
+    M.timers.push(setTimeout(() => this._frasePiano(), M.intenso ? 250 : 900));
+  }
+
+  /** Apaga el piano con un fundido (las notas que suenan terminan solas). */
+  pianoOff(fundido = 2.5) {
+    const M = this.musica;
+    const P = M.piano;
+    if (!P) return;
+    M.piano = null;
+    if (!this.ctx) return;
+    const t = this.ctx.currentTime;
+    P.bus.gain.cancelScheduledValues(t);
+    P.bus.gain.setTargetAtTime(0.0001, t, fundido / 3);
+  }
+
+  /** Una nota de piano: parciales levemente inarmónicos, ataque de martillo y caída más rápida en los agudos. */
+  _notaPiano(f, t, vel) {
+    const ctx = this.ctx, P = this.musica.piano;
+    const tau = 1.5 * Math.sqrt(440 / f); // duración de la caída (s)
+    [[1, 1], [2.003, 0.42], [3.009, 0.17], [4.02, 0.07]].forEach(([h, a], k) => {
+      const o = this._osc("sine", f * h, t);
+      const g = ctx.createGain();
+      const pico = 0.2 * vel * a;
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.exponentialRampToValueAtTime(pico, t + 0.005);
+      g.gain.setTargetAtTime(0.0001, t + 0.005, tau / (1 + 0.7 * k));
+      o.connect(g).connect(P.bus);
+      o.start(t);
+      o.stop(t + 6 * tau);
+    });
+  }
+
+  /** Frases lentas de 3 a 5 notas con tonos del acorde actual (dos octavas arriba) y de la escala. */
+  _frasePiano() {
+    const M = this.musica, P = M.piano;
+    if (!M.on || !P) return;
+    if (!this.sonando) { M.timers.push(setTimeout(() => this._frasePiano(), 600)); return; }
+    const ACORDES = [
+      [440.0, 554.37, 659.25, 880.0], // La
+      [369.99, 440.0, 554.37, 739.99], // Fa# menor
+      [293.66, 369.99, 440.0, 587.33], // Re
+      [329.63, 415.3, 493.88, 659.25], // Mi
+    ];
+    const ESCALA = [440.0, 493.88, 554.37, 659.25, 739.99, 880.0]; // La mayor pentatónica
+    const acorde = ACORDES[(M.acorde + 3) % 4]; // el acorde que está sonando (_siguienteAcorde ya avanzó)
+    const ctx = this.ctx;
+    let t = ctx.currentTime + 0.05;
+    if (P.abrir) {
+      // apertura: arpegio ascendente de La mayor con el bajo en octavas, más fuerte que el resto
+      P.abrir = false;
+      this._notaPiano(110, t, 0.9);
+      this._notaPiano(220, t, 0.7);
+      [440, 554.37, 659.25, 880, 1108.73].forEach((f, k) => this._notaPiano(f, t + 0.16 * k, 0.95 - 0.08 * k));
+      M.timers.push(setTimeout(() => this._frasePiano(), 3200));
+      return;
+    }
+    const n = 3 + Math.floor(Math.random() * 3);
+    const subir = P.paso++ % 2 === 0; // alterna frases que suben y que bajan
+    const notas = [...acorde].sort((a, b) => (subir ? a - b : b - a));
+    for (let k = 0; k < n; k++) {
+      let f = notas[k % notas.length];
+      if (k === n - 1 && Math.random() < 0.4) f = ESCALA[Math.floor(Math.random() * ESCALA.length)]; // nota de paso
+      const vel = 0.55 + 0.35 * Math.random() - 0.08 * k;
+      this._notaPiano(f, t, vel);
+      if (k === 0 && Math.random() < 0.5) this._notaPiano(f / 2, t, vel * 0.6); // a veces, la octava grave
+      t += 0.55 + Math.random() * 0.6;
+    }
+    const descanso = 2.2 + Math.random() * 2.8; // silencio entre frases
+    M.timers.push(setTimeout(() => this._frasePiano(), (t - ctx.currentTime + descanso) * 1000));
   }
 }

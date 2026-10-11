@@ -30,7 +30,8 @@ frontend/
                     narration, charts, circuit inspector, help, keyboard, sound wiring, the behaviour chip and
                     the "Worm behaviour" box in the scanner
   main.css          the HUD design system (tokens, Geist fonts embedded as base64, panels, intro); the only CSS Qollab loads
-  js/intro.js       Intro: boot console fed by init(), title + PRESS START, three beats on the real AVM circuit, skip/replay
+  js/intro.js       Intro: boot console fed by init(), title + PRESS START, two context beats (optogenetics, the 2026 Nobel
+                    Prize) and three beats on the real AVM circuit, skip/replay
   js/juego.js       game layer: Carga (hold to charge θ), Juego (stats, achievements that each explain one physics fact)
   js/conducta.js    neuron class → behaviour table (with references) and the forward/backward Motor drive
   js/escena.js      WormScene: three.js scene, organ meshes, curvature kinematics (swim + behaviour motions), neurons
