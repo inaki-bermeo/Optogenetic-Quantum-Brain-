@@ -56,12 +56,70 @@ The simulation functions as both an educational platform and a scientific sandbo
 
 The physical mapping from biology to quantum computing turns the connectivity graph of the neurons into a continuous-time quantum walk. It is built with Qiskit and runs on a simulator or on IonQ hardware.
 
-**1. Symmetrization and spectral normalization ($J$)**
 
-Chemical synapses are directional, but the evolution $e^{-iHt}$ is unitary only if $H$ is Hermitian, so the coupling matrix must be symmetric. From the connectome data (Cook et al., 2019), let $c_{i\to j}$ be the number of chemical synapses from $i$ to $j$ and $g_{ij}$ the number of gap junctions. Two neurons are connected if they share at least one synapse of either kind, and every connection counts the same (binary weights). Here $\mathbb{1}[\cdot]$ is 1 when the condition holds and 0 otherwise:
+**0. Random walks on graphs: classical and quantum**
+
+Let $G = (V, E)$ be an undirected graph with $N = |V|$ vertices and symmetric adjacency matrix $A \in \lbrace 0,1 \rbrace^{N \times N}$, where $A_{uv} = 1$ if and only if $\lbrace u, v \rbrace \in E$ and $A_{vv} = 0$. Let $d_v = \sum_u A_{vu}$ be the degree of $v$, $D = \text{diag}(d_v)$, and $L = D - A$ the graph Laplacian.
+
+*Classical walk.* A continuous-time random walk that jumps along every edge at rate $\gamma$ has a probability vector $p(t) \in \mathbb{R}^N$ that obeys
 
 ```math
-W_{ij} = \mathbb{1}\left[\, c_{i\to j} + c_{j\to i} + \max(g_{ij}, g_{ji}) > 0 \,\right]
+\frac{d p}{d t} = -\gamma L\, p
+\quad\Longrightarrow\quad
+p(t) = e^{-\gamma L t}\, p(0)
+```
+The off-diagonal entries of $-L$ are nonnegative and its columns sum to zero, so $e^{-\gamma L t}$ is a stochastic matrix and $p(t)$ remains a probability distribution. On a connected graph, $p(t)$ converges to the uniform distribution $(1/N, \dots, 1/N)$ as $t \to \infty$, so the walk forgets where it started. On a graph with several connected components, it converges to the uniform distribution on the component of the starting vertex.
+
+*Quantum walk.* The probabilities are replaced by complex amplitudes. The state is a unit vector $|\psi(t)\rangle \in \mathbb{C}^N$ in the orthonormal basis $\lbrace |v\rangle \rbrace_{v \in V}$, and it obeys the Schrödinger equation for a Hermitian matrix $H$:
+
+```math
+i\,\frac{d}{d t}|\psi(t)\rangle = H\,|\psi(t)\rangle
+\quad\Longrightarrow\quad
+|\psi(t)\rangle = e^{-iHt}\,|\psi(0)\rangle
+```
+
+Since $H = H^\dagger$, the operator $e^{-iHt}$ is unitary and preserves the norm. The classical propagator $e^{-\gamma L t}$ cannot play this role because it is not unitary. Following Farhi and Gutmann (1998), the walk is defined by a Hermitian Hamiltonian matrix $H$ that couples only adjacent vertices: $H_{uv} \neq 0$ with $u \neq v$ only if $\lbrace u, v \rbrace \in E$. We take $H = \gamma J$ with $J = A / \lambda_{\max}(A)$, as in Section 1. On an irregular graph, such as the connectome, using $L$ instead would add the non-constant diagonal $D$ and give a different walk. If the walk starts at vertex $j$, the Born rule gives the probability of finding it at vertex $k$:
+
+```math
+P_{j \to k}(t) = \left|\langle k|\, e^{-iHt} \,|j\rangle\right|^2,
+\qquad
+\sum_{k \in V} P_{j \to k}(t) = 1
+```
+
+Writing $H = \sum_\mu \lambda_\mu |\phi_\mu\rangle\langle\phi_\mu|$ in its eigenbasis, the amplitude is $\langle k|e^{-iHt}|j\rangle = \sum_\mu e^{-i\lambda_\mu t} \langle k|\phi_\mu\rangle\langle\phi_\mu|j\rangle$. It is a sum of phases, and their relative phases produce constructive and destructive interference. Replacing $H$ by $-H$ conjugates the amplitude and leaves every probability unchanged.
+
+Three differences with the classical walk follow directly.
+
+**(i) No stationary distribution.** $P_{j \to k}(t)$ is an almost periodic function of $t$ and in general does not converge. Only its time average does:
+
+```math
+\lim_{T \to \infty} \frac{1}{T} \int_0^T P_{j \to k}(t)\, dt
+= \sum_{\lambda} \left|\langle k|\,\Pi_\lambda\,|j\rangle\right|^2
+```
+
+where the sum runs over the distinct eigenvalues $\lambda$ of $H$ and $\Pi_\lambda$ is the orthogonal projector onto the corresponding eigenspace.
+
+**(ii) Ballistic instead of diffusive spreading.** On the infinite line $\mathbb{Z}$ with $H = \gamma A$, the amplitudes are given by Bessel functions of the first kind, and the mean squared displacement grows as $t^2$. The classical walk on the same line only grows as $t$:
+
+```math
+\langle k|e^{-i\gamma A t}|j\rangle = (-i)^{k-j}\, \mathcal{J}_{k-j}(2\gamma t),
+\qquad
+\sum_{k}(k-j)^2\, P_{j \to k}(t) = 2\gamma^2 t^2
+\quad\text{versus}\quad 2\gamma t
+```
+
+**(iii) Randomness comes only from measurement.** The evolution $e^{-iHt}$ is deterministic and reversible, so the name "quantum random walk" is historical. A random outcome appears only when the state is measured, and the measurement collapses it onto one vertex.
+
+The walk of this project is this model on the connectome ($N = 302$), and on windows of 10 vertices in the circuits. Section 2 shows that the XY Hamiltonian restricted to one excitation is exactly $H = \gamma J$, with the basis vector $|v\rangle$ standing for one excitation on neuron $v$.
+
+
+
+**1. Symmetrization and spectral normalization ($J$)**
+
+Chemical synapses are directional, but the evolution $e^{-iHt}$ is unitary only if $H$ is Hermitian, so the coupling matrix must be symmetric. From the connectome data (Cook et al., 2019), let $c_{i\to j}$ be the number of chemical synapses from $i$ to $j$ and $g_{ij}$ the number of gap junctions. Two neurons are connected if they share at least one synapse of either kind, and every connection counts the same (binary weights). Here $\mathbb{1} [ \cdot ]$ is 1 when the condition holds and 0 otherwise:
+
+```math
+W_{ij} = \mathbb{1} \left[\, c_{i\to j} + c_{j\to i} + \max(g_{ij}, g_{ji}) > 0 \,\right]
 ```
 
 The synapse direction and the number of synapses per connection are lost in this step. To measure time in natural $1/\gamma$ units, the matrix is divided by its largest eigenvalue ($\lambda_{\max}(W) \approx 32.8$), so that $\lVert J \rVert_2 = 1$:
@@ -76,7 +134,7 @@ Synaptic propagation is governed by an XY (hard-core boson) Hamiltonian:
 
 ```math
 H = \gamma \sum_{i \lt j} J_{ij}\,\frac{X_i X_j + Y_i Y_j}{2}
-  = \gamma \sum_{i \lt j} J_{ij}\left(\sigma_i^+ \sigma_j^- + \sigma_i^- \sigma_j^+\right)
+  = \gamma \sum_{i \lt j} J_{ij}\left( \sigma_i^+ \sigma_j^- + \sigma_i^- \sigma_j^+ \right)
 ```
 
 This Hamiltonian commutes with the total number operator, $[\hat{N}, H] = 0$, so the number of excitations never changes. The laser acts on one qubit, so the state contains at most one excitation and stays in the sectors with 0 and 1 excitations. In the one-excitation sector $H = \gamma J$, which is exactly the continuous-time quantum walk of Farhi and Gutmann (1998) on the connectome graph.
@@ -156,6 +214,7 @@ While a single-excitation quantum walk can be simulated efficiently on classical
 * **Neuron Positions:** OpenWorm CElegansNeuroML.
 * **Touch Reflex Circuit:** Chalfie et al. (1985).
 * **Optogenetics Application:** Nagel et al. (2005).
+* **Continuous-Time Quantum Walk:** Farhi & Gutmann, *Phys. Rev. A* 58, 915 (1998).
 
 **Technology Stack**
 * Qiskit, NumPy, SciPy, Matplotlib, Three.js, Web Audio API.
