@@ -1,0 +1,24 @@
+# Python
+.venv/
+venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Jupyter / Qollab workspace exports
+.ipynb_checkpoints/
+
+# Build output (the flat folder uploaded to Qollab)
+dist/
+
+# Local screenshots from the smoke test
+capturas/
+screenshots/
+
+# Secrets
+.env
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini

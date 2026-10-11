@@ -1,0 +1,8 @@
+# Qiskit con sus extras de visualización: es exactamente lo que agrega la opción
+# "Qiskit Visualizations" de Qollab (Libraries). Al nombrar Qiskit aquí, Qollab usa esta línea
+# en vez de la suya (qiskit>=2.5.2,<3.0.0). Trae matplotlib, pylatexenc y Pillow para
+# QuantumCircuit.draw("mpl"), plot_histogram y plot_distribution.
+qiskit[visualization]>=2.5.2,<3.0.0
+# NumPy viene con Pyodide; se lista porque los módulos Python se importan desde main.js.
+# (SciPy llega igual como dependencia de Qiskit; nuestro código ya no la usa directamente.)
+numpy>=1.24
