@@ -24,6 +24,7 @@ Optogenetic Quantum Brain is a single web page that runs inside **Qollab**. A "l
 | The physics: J, XY Hamiltonian, laser, Trotter, IonQ compilation, post-selection | [theory.md](theory.md) (Spanish), [theory_tex/](theory_tex/) |
 | The 3D body mesh and coordinate frames | [3d-model.md](3d-model.md) (Spanish) |
 | The anatomical worm (organs, Blender generator) and its curvature kinematics | [worm-model.md](worm-model.md) |
+| Features discussed but not built yet (IonQ replays, n lasers, …) | [proposals/](proposals/README.md) |
 | A common change (add an achievement, a Python function, a HUD control, a behaviour…) | [recipes.md](recipes.md) |
 | Why something is the way it is | [decisions.md](decisions.md) |
 | The public project page | [`PROJECT_CARD.md`](../PROJECT_CARD.md) and [`README.md`](../README.md), always kept in sync |
