@@ -7,13 +7,14 @@
 // Esc o "Skip intro" saltan en cualquier momento. Con prefers-reduced-motion no hay animaciones
 // ni vuelos de cámara: sólo el texto.
 
-import { REDUCED, sleep } from "./util.js";
+import { REDUCED, sleep, T_COLAPSO } from "./util.js";
 
 const ESCENAS = [
   { num: "01", titulo: "Light",
     texto: "A light pulse hits neuron <b>AVM</b>. In this model that pulse is a quantum gate, <b>RX(θ)</b>, " +
       "that rotates the neuron's qubit from rest towards active." },
-  { num: "02", titulo: "Superposition",
+  // auto: si la persona no sigue, la escena pasa sola tras esos ms (no con prefers-reduced-motion)
+  { num: "02", titulo: "Superposition", auto: 8000,
     texto: "The excitation spreads as a wave over AVM and its 9 most connected neighbours. Inside the " +
       "<b>10-qubit circuit</b> it is in all of them at once." },
   { num: "03", titulo: "Collapse",
@@ -34,9 +35,7 @@ export class Intro {
     this.listo = false;
     this.terminada = false;
     this._turno = 0;
-    this.o.app.inert = true;
-    this.o.app.classList.add("en-intro");
-    document.querySelector(".skip-link").inert = true;
+    this._bloquear(true);
     this.o.scene.setPaused(true);
     this._bind();
   }
@@ -122,6 +121,7 @@ export class Intro {
     $("intro-next").textContent = this.escena === ESCENAS.length - 1 ? "Your turn ▸" : "Next ▸";
     $("intro-next").focus();
     this.o.sound.ui?.("select");
+    if (e.auto && !REDUCED) setTimeout(() => { if (turno === this._turno) this.siguiente(); }, e.auto);
     try {
       await this[`_escena${this.escena}`](turno);
     } catch (err) {
@@ -140,15 +140,13 @@ export class Intro {
   }
 
   // --- escena 2: superposición (larga: el colapso llega con la escena 3)
-  async _escena1(turno) {
+  async _escena1() {
     const d = await this._demo;
     const { scene } = this.o;
     scene.setHighlight(d.ventana_indices);
-    if (REDUCED) scene.setActivity(scene.activity); // sin animación de colapso que lo aplique
     // la superposición late hasta que la persona sigue; si no sigue, se pasa sola al colapso (8 s)
-    setTimeout(() => { if (turno === this._turno && this.escena === 1) this.siguiente(); }, 8000);
     if (!REDUCED) {
-      this._colapso = scene.collapse(d.ventana_indices, d.ideal_marginales, this._sortear(d), { superposition: 600, collapse: 0.9 });
+      this._colapso = scene.collapse(d.ventana_indices, d.ideal_marginales, this._sortear(d), { superposition: 600, collapse: T_COLAPSO });
     }
   }
 
@@ -158,7 +156,7 @@ export class Intro {
     const { scene, sound } = this.o;
     const spike = this._spike ?? this._sortear(d);
     const i = d.ventana_indices.indexOf(spike);
-    sound.medicion(d.ideal_marginales, i, this.o.nota(spike), 0.2, 0.8);
+    sound.medicion(d.ideal_marginales, i, this.o.nota(spike), 0.2, T_COLAPSO);
     if (REDUCED) return;
     scene.collapseNow();
     this.o.barrido?.();
@@ -191,9 +189,7 @@ export class Intro {
     if (s.on && s.activar()) { s.ui?.("confirm"); s.musicaOn(); }
     this.o.scene.setCinematic(false);
     this.el.classList.add("fin");
-    this.o.app.inert = false;
-    this.o.app.classList.remove("en-intro");
-    document.querySelector(".skip-link").inert = false;
+    this._bloquear(false);
     if (!REDUCED) {
       this.o.app.classList.remove("entrando");
       void this.o.app.offsetWidth;
@@ -208,13 +204,18 @@ export class Intro {
     Object.assign(this, { fase: "boot", escena: -1, terminada: false, _spike: null, _turno: this._turno + 1 });
     this.el.hidden = false;
     this.el.classList.remove("fin");
-    this.o.app.inert = true;
-    this.o.app.classList.add("en-intro");
-    document.querySelector(".skip-link").inert = true;
+    this._bloquear(true);
     document.getElementById("intro-skip").textContent = "Skip intro";
     document.getElementById("intro-skip").insertAdjacentHTML("beforeend", " <kbd>Esc</kbd>");
     document.addEventListener("keydown", this._teclaTitulo);
     this.preparado();
+  }
+
+  /** Mientras dura la intro, el HUD queda oculto e inerte (no se le puede dar el foco). */
+  _bloquear(on) {
+    this.o.app.inert = on;
+    this.o.app.classList.toggle("en-intro", on);
+    document.querySelector(".skip-link").inert = on;
   }
 
   _fase(f) {

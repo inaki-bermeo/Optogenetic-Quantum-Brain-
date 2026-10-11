@@ -19,9 +19,9 @@ import { QUALITY, WormScene } from "./js/escena.js";
 import { dataTable, esc, groupedBars, SERIES_COLORS } from "./js/graficos.js";
 import { Intro } from "./js/intro.js";
 import { Carga, Juego, probDisparo } from "./js/juego.js";
-import { cancelarLentas, py, respirar } from "./js/python.js";
+import { py, respirar } from "./js/python.js";
 import { notaNeurona, Sonido } from "./js/sonido.js";
-import { escribiendo, REDUCED, sleep, T_SUPERPOSICION } from "./js/util.js";
+import { COARSE, EASE, escribiendo, REDUCED, sleep, T_COLAPSO, T_SUPERPOSICION } from "./js/util.js";
 
 const $ = (id) => document.getElementById(id);
 const TYPE_ES = { sensory: "sensory", interneuron: "interneuron", motor: "motor", unknown: "—" };
@@ -34,10 +34,13 @@ const ui = { inspector: false, intro: true };
 const circ = { cache: new Map(), follow: true, turno: 0, fig: new Map(), figTurno: 0, mplListo: false, mpl: null };
 const DOS_QUBITS = new Set(["rxx", "ryy", "rzz", "rzx", "cx", "cz", "ecr", "ms", "zz", "swap", "iswap", "xx_plus_yy"]);
 const pad = (n, w = 2) => String(n).padStart(w, "0");
+// el naranja de "medido/spike" del CSS (--spike), para las animaciones hechas desde JS
+const SPIKE = getComputedStyle(document.documentElement).getPropertyValue("--spike").trim() || "#ff6a2b";
 const SOUND_ON = '<path d="M4 9v6h4l5 4V5L8 9H4z"/><path d="M16 8.5a5 5 0 0 1 0 7M18.5 6a8.5 8.5 0 0 1 0 12"/>';
 const SOUND_OFF = '<path d="M4 9v6h4l5 4V5L8 9H4z"/><path d="M17 9l5 6M22 9l-5 6"/>';
 const MAX_CACHE = 8; // circuitos y figuras guardados (las figuras son SVG de cientos de KB)
-const IDLE_MS = 20000; // sin interacción, el gusano deja de nadar y la escena no dibuja más
+// lo último escrito en el HUD: se reescribe sólo lo que cambió (la carga del láser llama en cada cuadro)
+const hud = { stats: {}, dose: {}, prefetch: 0 };
 
 /** Map con tope (LRU): lo usado vuelve al final; al pasarse del tope se borra lo más viejo. */
 function lruSet(map, clave, valor) {
@@ -140,8 +143,7 @@ function setInspector(open) {
     renderCircuitPanel(); // la figura de matplotlib se pide sólo si el inspector sigue abierto (pedirMpl)
     $("inspector-close").focus();
   } else {
-    cancelarLentas(); // dibujos pendientes de matplotlib: ya nadie los va a ver
-    $("inspect-btn").focus();
+    $("inspect-btn").focus(); // los dibujos de matplotlib pendientes se descartan solos (vigente)
   }
 }
 
@@ -149,11 +151,11 @@ function setInspector(open) {
 function renderStats(paso = null, total = null) {
   const st = juego.stats();
   const set = (id, html) => {
-    if (renderStats.prev[id] === html) return;
-    renderStats.prev[id] = html;
+    if (hud.stats[id] === html) return;
+    hud.stats[id] = html;
     const el = $(id);
     el.innerHTML = html;
-    if (!REDUCED) el.animate([{ color: "#ff6a2b", transform: "translateY(-2px)" }, {}], { duration: 500, easing: "ease-out" });
+    if (!REDUCED) el.animate([{ color: SPIKE, transform: "translateY(-2px)" }, {}], { duration: 500, easing: EASE });
   };
   if (paso != null) set("st-step", `${pad(paso)}/${pad(total)}`);
   set("st-jumps", pad(st.saltos));
@@ -161,32 +163,24 @@ function renderStats(paso = null, total = null) {
   set("st-neurons", `${pad(st.neuronas, 3)}<small>/302</small>`);
 }
 
-renderStats.prev = {};
-
 /**
  * Medidor de dosis: llenado = θ/π; texto = probabilidad de disparo sin²(θ/2). Mientras se carga se llama
- * en cada cuadro: sólo toca el DOM cuando cambia algo visible (y el texto accesible, de a 10 %).
+ * en cada cuadro: una sola variable (--dose, en la consola) mueve el medidor y el relleno del botón, y
+ * el texto sólo se reescribe cuando cambia el porcentaje.
  */
 function setDose(theta, { charging = false } = {}) {
-  const D = setDose.prev;
+  const D = hud.dose, deck = $("hud-deck");
   const lleno = (theta / Math.PI).toFixed(3), pc = Math.round(100 * probDisparo(theta));
-  if (lleno !== D.lleno || charging !== D.charging) {
-    $("dose-meter").style.setProperty("--dose", lleno);
-    $("fire-btn").style.setProperty("--charge", charging ? lleno : 0);
-    if (charging !== D.charging) $("dose-meter").classList.toggle("charging", charging);
-  }
+  if (lleno !== D.lleno) deck.style.setProperty("--dose", lleno);
+  if (charging !== D.charging) deck.classList.toggle("charging", charging);
   if (pc !== D.pc) {
     $("theta-val").textContent = fmtTheta(theta);
     $("pfire").textContent = `${pc}%`;
-  }
-  const paso = Math.round(pc / 10);
-  if (paso !== D.paso || !charging) {
     $("dose-meter").setAttribute("aria-valuenow", (pc / 100).toFixed(2));
     $("dose-meter").setAttribute("aria-valuetext", `θ = ${fmtTheta(theta)}, fire chance ${pc}%`);
   }
-  Object.assign(D, { lleno, charging, pc, paso });
+  Object.assign(D, { lleno, charging, pc });
 }
-setDose.prev = {};
 
 function mostrarLogro(l) {
   const box = $("achievements");
@@ -199,11 +193,11 @@ function mostrarLogro(l) {
   setTimeout(() => { el.classList.add("out"); setTimeout(() => el.remove(), 450); }, REDUCED ? 6000 : 4200);
 }
 
-/** Barrido de escaneo sobre la escena (una pasada), sincronizado con el colapso. */
+/** Barrido de escaneo sobre la escena (una pasada), dura lo mismo que el colapso. */
 function barrido() {
   if (REDUCED) return;
   $("sweep").animate([{ opacity: 1, backgroundPosition: "0 100%" }, { opacity: 0, backgroundPosition: "0 -10%" }],
-    { duration: 700, easing: "cubic-bezier(.2,.8,.2,1)" });
+    { duration: 1000 * T_COLAPSO, easing: EASE });
 }
 
 // ------------------------------------------------------------------ fuente del láser
@@ -306,6 +300,7 @@ async function fire(thetaCarga = null) {
   setDose(theta);
   closeHelp();
   Object.assign(cascade, { running: true, stop: false, centers: [state.source], steps: [], conductas: [] });
+  scene.ocupada = true; // sin reposo mientras corre
   circ.follow = true;
   $("fire-btn").disabled = true;
   $("fire-label").textContent = "Running circuits…";
@@ -375,6 +370,8 @@ async function fire(thetaCarga = null) {
     toast(`The step failed: ${e.message}`, true);
   } finally {
     cascade.running = false;
+    scene.ocupada = false;
+    scene.marcarActividad();
     sound.pararFondo();
     scene.setDrive(motor.d);
     setTimeout(() => { if (!cascade.running) { scene.setSwim(true); sound.musicaDuck(false); } }, 2500);
@@ -564,9 +561,7 @@ const vista = () => document.querySelector('input[name="circ-vista"]:checked').v
 
 async function cargarCircuito(p) {
   const clave = JSON.stringify(p);
-  const hecho = circ.cache.get(clave);
-  if (hecho) return lruSet(circ.cache, clave, hecho);
-  return lruSet(circ.cache, clave, py.circuito(p).catch((e) => { circ.cache.delete(clave); throw e; }));
+  return lruSet(circ.cache, clave, circ.cache.get(clave) ?? py.circuito(p).catch((e) => { circ.cache.delete(clave); throw e; }));
 }
 
 /**
@@ -574,8 +569,8 @@ async function cargarCircuito(p) {
  * 300 ms sin cambios: al probar varias neuronas o mover un deslizador sólo se calcula la última.
  */
 function prefetchPreview() {
-  clearTimeout(prefetchPreview.t);
-  prefetchPreview.t = setTimeout(() => { if (!cascade.running) cargarCircuito(previewParams()).catch(() => {}); }, 300);
+  clearTimeout(hud.prefetch);
+  hud.prefetch = setTimeout(() => { if (!cascade.running) cargarCircuito(previewParams()).catch(() => {}); }, 300);
 }
 
 function fillStepSelect() {
@@ -745,7 +740,7 @@ function renderCounts(c, r) {
 
 // --- la figura oficial de Qiskit (matplotlib), en segundo plano
 function precargarMpl() {
-  circ.mpl ??= py.precargarFiguras()
+  circ.mpl ??= py.precargarFiguras({ vigente: () => ui.inspector })
     .then((r) => { circ.mplListo = !!r.ok; return r; })
     .catch((e) => { circ.mpl = null; return { ok: false, error: e.message, cancelado: !!e.cancelado }; });
   return circ.mpl;
@@ -776,7 +771,7 @@ async function pedirMpl(r, p) {
     const pre = await precargarMpl();
     if (pre.cancelado) return;
     if (!pre.ok) throw new Error(pre.error || "matplotlib is not installed");
-    const f = f0 ?? await py.figuras(params);
+    const f = f0 ?? await py.figuras(params, { vigente: () => turno === circ.figTurno && ui.inspector });
     lruSet(circ.fig, clave, f);
     circ.mplListo = true;
     if (turno !== circ.figTurno || !ui.inspector) return;
@@ -822,27 +817,10 @@ function renderBackendInfo() {
     : `Ready on ${b.nombre}. Nothing has run yet.`;
 }
 
-/**
- * Reposo: tras IDLE_MS sin tocar nada (y sin cascada) el gusano deja de nadar, así la escena deja de
- * dibujar y el bucle se detiene (escena.js). Cualquier gesto lo despierta.
- */
-function vigilarInactividad() {
-  let t = 0, ultimo = 0, dormido = false;
-  const dormir = () => {
-    if (cascade.running || ui.intro) { t = setTimeout(dormir, IDLE_MS); return; }
-    dormido = true;
-    scene.setSwim(false);
-  };
-  const actividad = () => {
-    const ahora = performance.now();
-    if (dormido) { dormido = false; if ($("swim").checked) scene.setSwim(true); }
-    else if (ahora - ultimo < 1000) return; // pointermove llega decenas de veces por segundo
-    ultimo = ahora;
-    clearTimeout(t);
-    t = setTimeout(dormir, IDLE_MS);
-  };
-  for (const ev of ["pointerdown", "pointermove", "keydown", "wheel"]) document.addEventListener(ev, actividad, { passive: true });
-  actividad();
+/** Cualquier gesto en la página saca a la escena del reposo (ver escena.marcarActividad). */
+function avisarActividad() {
+  const aviso = () => scene.marcarActividad();
+  for (const ev of ["pointerdown", "keydown", "wheel"]) document.addEventListener(ev, aviso, { passive: true });
 }
 
 /** Disparo con "mantener para cargar": puntero sobre el botón o Espacio en cualquier parte del HUD. */
@@ -857,8 +835,8 @@ function bindCarga() {
     },
     soltar: (th, cargado) => {
       sound.cargaFin();
-      $("fire-btn").style.setProperty("--charge", 0);
-      if (cargado) fire(th); else { setDose(physics().theta); fire(); }
+      setDose(cargado ? th : physics().theta); // sale del modo "cargando" aunque fire() no dispare
+      fire(cargado ? th : null);
     },
   });
   const puede = () => !btn.disabled && !cascade.running && !ui.intro && !ui.inspector;
@@ -889,8 +867,8 @@ function bindCarga() {
 
 function bindUI() {
   bindCarga();
-  vigilarInactividad();
-  if (matchMedia("(pointer: coarse)").matches) {
+  avisarActividad();
+  if (COARSE) {
     $("scene-help").textContent = "Hold Fire to charge · tap a neuron to target it · drag sideways or use two fingers to orbit";
   }
   $("casc-stop").addEventListener("click", stopCascade);
@@ -915,18 +893,8 @@ function bindUI() {
   $("quality").addEventListener("change", () => scene.setQuality($("quality").value));
   scene.on("quality", (q, auto) => {
     $("quality").querySelector('option[value="auto"]').textContent = `Auto (${QUALITY[q].label.toLowerCase()})`;
-    // el grano y la viñeta (capas sobre el lienzo) sólo en calidad alta
-    const app = $("app");
-    app.classList.remove("q-alta", "q-media", "q-baja");
-    app.classList.add(`q-${q}`);
-    if (auto && q === "baja") {
-      // equipo justo: sin nado (el gusano sigue respondiendo a cada conducta)
-      scene.setSwimEnabled(false);
-      $("swim").checked = false;
-      if (!ui.intro) toast("Graphics set to Low and idle swimming off, to keep it smooth");
-    }
+    if (auto && q === "baja" && !ui.intro) toast("Graphics set to Low to keep it smooth (no idle swimming)");
   });
-  $("app").classList.add(`q-${scene.quality}`);
   $("autorotate").addEventListener("change", () => scene.setAutoRotate($("autorotate").checked));
   $("swim").addEventListener("change", () => scene.setSwimEnabled($("swim").checked));
   if (REDUCED) { $("swim").checked = false; $("swim").disabled = true; }
@@ -1032,7 +1000,7 @@ function alTerminarIntro() {
   showSourceOnly();
   narrateReady();
   fireLabel();
-  $("fire-btn").focus({ preventScroll: true }); // en el teléfono el gusano queda a la vista
+  $("fire-btn").focus({ preventScroll: COARSE }); // en el teléfono el gusano queda a la vista
 }
 
 async function init() {

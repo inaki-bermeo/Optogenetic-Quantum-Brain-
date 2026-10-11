@@ -19,7 +19,7 @@ import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
 import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
 import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
-import { REDUCED, T_COLAPSO, T_SUPERPOSICION } from "./util.js";
+import { COARSE, REDUCED, T_COLAPSO, T_SUPERPOSICION } from "./util.js";
 
 const TYPE_COLOR = {
   sensory: new THREE.Color("#2dd4bf"),
@@ -52,10 +52,9 @@ const LUT = (() => {
 })();
 const lutIndex = (v) => 3 * Math.max(0, Math.min(255, Math.round(v * 255)));
 
-const REDUCED_MOTION = REDUCED;
 const Y_UP = new THREE.Vector3(0, 1, 0);
-const VENTANA_MAX = 10; // neuronas por circuito de la cascada
-const PARTICULAS_MAX = 10 * 17; // partículas del colapso: 3 a 17 por neurona
+const LASER_DESDE = new THREE.Vector3(-0.6, 4.5, 1.2); // de dónde baja el haz, relativo a la neurona
+const PARTICULAS_POR_NEURONA = 17; // en el colapso: de 3 (improbable) a 17 (la más probable)
 const RASTRO_MAX = 128; // centros que dibuja el rastro de la cascada
 
 const S_AP = 0.02; // µm → unidades de escena (eje anteroposterior)
@@ -119,8 +118,10 @@ const MOTION_TAU = { dir: 0.35, freq: 0.3, amp: 0.25, cabeza: 0.25, flex: 0.25, 
 export const QUALITY = {
   alta: { label: "High", pixelRatio: () => Math.min(window.devicePixelRatio, 1.75), bloom: true, bloomScale: 1, maxPx: 2.1e6 },
   media: { label: "Medium", pixelRatio: () => 1, bloom: true, bloomScale: 0.5, maxPx: 1.2e6 },
-  baja: { label: "Low", pixelRatio: () => Math.min(window.devicePixelRatio, 1) * 0.85, bloom: false, bloomScale: 0, maxPx: 0.8e6 },
+  baja: { label: "Low", pixelRatio: () => Math.min(window.devicePixelRatio, 1) * 0.85, bloom: false, bloomScale: 0, maxPx: 0.8e6,
+    nadoLibre: false }, // en "baja" el gusano no nada en reposo (las conductas sí se animan)
 };
+const REPOSO_MS = 20000; // sin interacción ni cascada, el movimiento de ambiente (nado, órbita) se detiene
 
 export class WormScene {
   constructor(canvas, { quality = "auto" } = {}) {
@@ -146,8 +147,8 @@ export class WormScene {
     this.controls.addEventListener("change", () => this.requestRender());
     // pantallas táctiles: OrbitControls pone touch-action: none (bloquea el desplazamiento de la página);
     // con pan-y un dedo vertical desplaza la página y uno horizontal o dos dedos mueven la cámara
-    if (typeof matchMedia === "function" && matchMedia("(pointer: coarse)").matches) {
-      canvas.style.touchAction = "pan-y";
+    if (COARSE) {
+      canvas.style.touchAction = "pan-y"; // tiene que ser inline: OrbitControls escribe "none" inline
       this.controls.touches = { ONE: THREE.TOUCH.ROTATE, TWO: THREE.TOUCH.DOLLY_ROTATE };
     }
     // si la persona arrastra la cámara, manda ella: se corta cualquier vuelo y no hay acercamientos
@@ -170,21 +171,22 @@ export class WormScene {
     this.highlight = new Set();
     this._tmpMat = new THREE.Matrix4();
     this._tmpVec = new THREE.Vector3();
+    this._tmpVec2 = new THREE.Vector3();
     this._dirty = true;
-    this._perf = { frames: 0, time: 0, probada: false };
+    this._perf = { frames: 0, time: 0, probada: false, previo: false };
 
     // "auto" empieza en media y sube a alta sólo si el equipo la sostiene (ver _adaptQuality)
     this.autoQuality = quality === "auto";
     this.quality = this.autoQuality ? "media" : quality;
 
-    this.reducedMotion = REDUCED_MOTION;
+    this.reducedMotion = REDUCED;
     // uniforms compartidos por todos los materiales que ondulan
     this.swimU = {
       uSwimAmp: { value: 0 }, uSwimT: { value: 0 }, uSwimFase: { value: 0 }, uSwimK: { value: 1 }, uSwimX0: { value: 0 },
       uSwimL: { value: 1 }, uCabeza: { value: 0 }, uFlex: { value: new THREE.Vector3(0.5, 0, 0.1) },
       uRelaja: { value: new THREE.Vector3(0.5, 0, 0.1) }, uBend: { value: 0 }, uBrillo: { value: 1 },
     };
-    this.swim = { enabled: !REDUCED_MOTION, target: REDUCED_MOTION ? 0 : 1, level: 0, rampa: 0.9 };
+    this.swim = { enabled: !REDUCED, target: REDUCED ? 0 : 1, level: 0, rampa: 0.9 };
     // conducta en curso (ver actuar): cada valor se acerca suavemente a su objetivo
     this.motion = { ...MOTION_REPOSO };
     this.motionT = { ...MOTION_REPOSO };
@@ -195,8 +197,11 @@ export class WormScene {
     this._paused = false; // lo decide main.js (inspector abierto, pantalla de inicio)
     this._onScreen = true; // IntersectionObserver
     this._running = false;
-    this._loopDormido = false; // el bucle se detiene del todo cuando nada se mueve (ver _tick)
+    this._loopFn = null; // el bucle instalado; null = detenido (pausa, o nada se mueve: ver _tick)
     this._quietos = 0;
+    this.ocupada = false; // main.js lo pone mientras corre una cascada: no hay reposo
+    this._reposo = false;
+    this._ultimaEntrada = performance.now();
     this._sinceSwim = 0;
     this._addStars();
     this._bindEvents();
@@ -213,11 +218,9 @@ export class WormScene {
     this._running = run;
     if (run) {
       this._dirty = true;
-      this._loopDormido = true;
       this._wake();
     } else {
-      this._loopDormido = false;
-      this.renderer.setAnimationLoop(null);
+      this.renderer.setAnimationLoop((this._loopFn = null));
       // las animaciones en curso terminan ya: la cascada espera la promesa del colapso
       this._endCollapse();
       this._endActuar();
@@ -229,13 +232,18 @@ export class WormScene {
   on(name, fn) { this.callbacks[name] = fn; }
   requestRender() { this._dirty = true; this._wake(); }
 
-  /** Rearranca el bucle de animación si estaba dormido (sin dibujar nada todavía). */
+  /** Rearranca el bucle de animación si estaba detenido (sin dibujar nada todavía). */
   _wake() {
-    if (!this._loopDormido || !this._running) return;
-    this._loopDormido = false;
+    if (!this._running || this._loopFn) return;
     this._quietos = 0;
     this._last = performance.now();
-    this.renderer.setAnimationLoop(() => this._tick());
+    this.renderer.setAnimationLoop((this._loopFn = () => this._tick()));
+  }
+
+  /** Hubo interacción (main.js la avisa desde cualquier parte de la página): sale del reposo. */
+  marcarActividad() {
+    this._ultimaEntrada = performance.now();
+    if (this._reposo) { this._reposo = false; this.requestRender(); }
   }
 
   setQuality(q, { auto = false } = {}) {
@@ -243,6 +251,7 @@ export class WormScene {
     this.quality = q;
     this._resize();
     this.callbacks.quality(q, this.autoQuality);
+    this.requestRender();
   }
 
   setAutoRotate(v) { this.controls.autoRotate = v; this.requestRender(); }
@@ -280,8 +289,6 @@ export class WormScene {
       ep.set([a.x, a.y, a.z, b.x, b.y, b.z], k * 6);
     });
     // índices para las actualizaciones parciales (sólo la ventana medida cambia durante el colapso)
-    this._todas = Array.from({ length: n }, (_, i) => i);
-    this._todasAristas = Array.from({ length: m }, (_, k) => k);
     this._aristasDe = Array.from({ length: n }, () => []);
     for (let k = 0; k < m; k++) { this._aristasDe[this.edgeA[k]].push(k); this._aristasDe[this.edgeB[k]].push(k); }
     const eg = new THREE.BufferGeometry();
@@ -558,9 +565,12 @@ export class WormScene {
       moving = true;
       M[k] = Math.abs(d) < 0.01 ? T[k] : M[k] + d * Math.min(1, (rapido * dt) / MOTION_TAU[k]);
     }
-    const quieto = !this._actuar && !moving && S.target === 0 && S.level === 0 && this._enReposo();
+    // el nado libre se detiene en reposo y en calidad "baja"; una conducta en curso siempre se anima
+    const libre = !this._reposo && QUALITY[this.quality].nadoLibre !== false;
+    const objetivo = this._actuar || libre ? S.target : 0;
+    const quieto = !this._actuar && !moving && objetivo === 0 && S.level === 0 && this._enReposo();
     if (quieto) return false;
-    S.level += Math.sign(S.target - S.level) * Math.min(Math.abs(S.target - S.level), dt / S.rampa);
+    S.level += Math.sign(objetivo - S.level) * Math.min(Math.abs(objetivo - S.level), dt / S.rampa);
     const e = S.level * S.level * (3 - 2 * S.level);
     U.uSwimT.value += dt;
     U.uSwimFase.value += M.dir * M.freq * SWIM_W * dt * e;
@@ -719,7 +729,9 @@ export class WormScene {
   }
 
   // --------------------------------------------------------------- resaltes
+  /** Anillos sobre las neuronas `indices` (la ventana medida); también las agranda un poco. */
   setHighlight(indices) {
+    const antes = [...this.highlight];
     this.highlight = new Set(indices);
     this.ringGroup.clear();
     // geometría y material compartidos por todos los anillos (se crean una sola vez)
@@ -731,7 +743,10 @@ export class WormScene {
       m.position.copy(this.positions[i]);
       this.ringGroup.add(m);
     }
-    // el tamaño de las neuronas resaltadas se aplica en el próximo setActivity (quien llama lo hace)
+    // sólo cambian de tamaño las que entran o salen del resaltado
+    const cambian = [...antes, ...indices];
+    if (this.activity !== undefined && cambian.length) this._pintar(this.activity, cambian, this._aristasDeVentana(cambian));
+    this.requestRender();
   }
 
   /** Rastro de la cascada: línea que une los centros sucesivos (índices de neuronas). */
@@ -745,6 +760,7 @@ export class WormScene {
     pos.needsUpdate = true;
     this.trail.geometry.setDrawRange(0, n);
     this.trail.geometry.computeBoundingSphere();
+    this._rastroN = n;
     this.trail.visible = n >= 2;
     this.requestRender();
   }
@@ -760,13 +776,29 @@ export class WormScene {
   setLabel(index, text) { this.labelIndex = index; this.labelEl.textContent = text ?? ""; this.requestRender(); }
 
   // ---------------------------------------------------------------- actividad
-  /** Brillo de cada neurona (0..1). Con `indices` sólo se reescriben esas neuronas y sus sinapsis. */
-  setActivity(values, { indices = null } = {}) {
+  /** Brillo de cada neurona (0..1): reescribe todas las neuronas y sinapsis. */
+  setActivity(values) {
+    this._pintar(values, null, null);
+  }
+
+  /** Sinapsis que tocan alguna de estas neuronas (sin repetir). */
+  _aristasDeVentana(neuronas) {
+    const vistas = new Set();
+    for (const i of neuronas) for (const k of this._aristasDe[i]) vistas.add(k);
+    return [...vistas];
+  }
+
+  /**
+   * Escribe colores y tamaños. Con `neuronas` (y `aristas`) sólo esas: el colapso cambia 10 neuronas
+   * por cuadro y no hace falta reescribir las 302 ni todas las sinapsis.
+   */
+  _pintar(values, neuronas, aristas) {
     this.activity = values;
     const col = this.mesh.instanceColor.array;
     const M = this._tmpMat.elements;
-    const lista = indices ?? this._todas;
-    for (const i of lista) {
+    const n = neuronas ? neuronas.length : this.neurons.length;
+    for (let j = 0; j < n; j++) {
+      const i = neuronas ? neuronas[j] : j;
       const v = values ? values[i] : 0;
       const base = this.baseColors[i];
       let r, g, b, s;
@@ -791,15 +823,16 @@ export class WormScene {
     this.mesh.instanceColor.needsUpdate = true;
     this.mesh.instanceMatrix.needsUpdate = true;
 
-    if (this.edgeVisible) this._updateEdges(values, indices);
+    if (this.edgeVisible) this._updateEdges(values, aristas);
     this.requestRender();
   }
 
-  _updateEdges(values, indices = null) {
+  _updateEdges(values, aristas = null) {
     const ec = this.edgeLines.geometry.attributes.color.array;
     const A = this.edgeA, B = this.edgeB, W = this.edgeW;
-    const lista = indices ? [...new Set(indices.flatMap((i) => this._aristasDe[i]))] : this._todasAristas;
-    for (const k of lista) {
+    const n = aristas ? aristas.length : A.length;
+    for (let j = 0; j < n; j++) {
+      const k = aristas ? aristas[j] : j;
       const act = values ? Math.sqrt(values[A[k]] * values[B[k]]) : 0;
       const base = 0.25 + 0.75 * W[k];
       const li = lutIndex(0.45 + 0.55 * act);
@@ -827,83 +860,100 @@ export class WormScene {
    * un tirón por paso. _initFx los compila por adelantado (renderer.compile) mientras carga la página.
    */
   _initFx() {
-    const fx = new THREE.Group();
-    const mesh = (geo, color, op, extra) => { const m = new THREE.Mesh(geo, this._glow(color, op, extra)); fx.add(m); return m; };
     const dosCaras = { side: THREE.DoubleSide };
+    const grupo = () => { const g = new THREE.Group(); g.visible = false; this.scene.add(g); return g; };
+    const mesh = (g, geo, color, op, extra) => { const m = new THREE.Mesh(geo, this._glow(color, op, extra)); g.add(m); return m; };
     // láser: cilindros de altura 1 (se escalan al largo del haz), destello y onda
     const cil = (r) => new THREE.CylinderGeometry(r, r * 0.6, 1, 12, 1, true);
+    const gl = grupo();
     this._laserFx = {
-      glow: mesh(cil(0.07), new THREE.Color("#4da3ff").multiplyScalar(1.6), 0),
-      core: mesh(cil(0.014), new THREE.Color("#e8f4ff").multiplyScalar(2), 0),
-      flash: mesh(new THREE.SphereGeometry(0.3, 16, 12), new THREE.Color("#7cc4ff").multiplyScalar(3), 0),
-      ring: mesh(new THREE.RingGeometry(0.2, 0.24, 48), new THREE.Color("#4da3ff").multiplyScalar(2.5), 0, dosCaras),
+      grupo: gl,
+      glow: mesh(gl, cil(0.07), new THREE.Color("#4da3ff").multiplyScalar(1.6), 0),
+      core: mesh(gl, cil(0.014), new THREE.Color("#e8f4ff").multiplyScalar(2), 0),
+      flash: mesh(gl, new THREE.SphereGeometry(0.3, 16, 12), new THREE.Color("#7cc4ff").multiplyScalar(3), 0),
+      ring: mesh(gl, new THREE.RingGeometry(0.2, 0.24, 48), new THREE.Color("#4da3ff").multiplyScalar(2.5), 0, dosCaras),
     };
-    // colapso: hasta VENTANA_MAX halos, partículas, destello y anillo sobre la neurona medida
-    const haloGeo = new THREE.SphereGeometry(0.22, 18, 12);
+    // colapso: halos (crecen si una ventana trae más neuronas), partículas, destello y anillo
+    const gc = grupo();
     const pts = new THREE.Points(new THREE.BufferGeometry(), this._sw(new THREE.PointsMaterial({
       color: new THREE.Color("#ffb08a").multiplyScalar(1.6), size: 0.11, transparent: true, opacity: 0,
       blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false })));
-    pts.geometry.setAttribute("position", new THREE.BufferAttribute(new Float32Array(PARTICULAS_MAX * 3), 3));
-    fx.add(pts);
+    pts.geometry.setAttribute("position", new THREE.BufferAttribute(new Float32Array(PARTICULAS_POR_NEURONA * 10 * 3), 3));
+    gc.add(pts);
+    const haloGeo = new THREE.SphereGeometry(0.22, 18, 12);
     this._collapseFx = {
-      halos: Array.from({ length: VENTANA_MAX }, () => mesh(haloGeo, new THREE.Color("#38e1ff").multiplyScalar(1.3), 0)),
-      pts,
-      flash: mesh(new THREE.SphereGeometry(0.3, 18, 12), new THREE.Color("#ff6a2b").multiplyScalar(2.6), 0),
-      ring: mesh(new THREE.RingGeometry(0.24, 0.29, 48), new THREE.Color("#ff6a2b").multiplyScalar(2.2), 0, dosCaras),
+      grupo: gc, pts, halos: [],
+      halo: (i) => (this._collapseFx.halos[i] ??= mesh(gc, haloGeo, new THREE.Color("#38e1ff").multiplyScalar(1.3), 0)),
+      flash: mesh(gc, new THREE.SphereGeometry(0.3, 18, 12), new THREE.Color("#ff6a2b").multiplyScalar(2.6), 0),
+      ring: mesh(gc, new THREE.RingGeometry(0.24, 0.29, 48), new THREE.Color("#ff6a2b").multiplyScalar(2.2), 0, dosCaras),
     };
+    this._collapseFx.halo(0); // uno basta para compilar su shader; el resto comparte el programa
     // rastro: una línea con lugar para RASTRO_MAX centros (drawRange muestra los usados)
     const tg = new THREE.BufferGeometry();
     tg.setAttribute("position", new THREE.BufferAttribute(new Float32Array(RASTRO_MAX * 3), 3));
     this.trail = new THREE.Line(tg, this._sw(new THREE.LineBasicMaterial({ color: new THREE.Color("#ff6a2b").multiplyScalar(1.5),
       transparent: true, opacity: 0.95, toneMapped: false, depthWrite: false })));
-    fx.add(this.trail);
+    this.trail.visible = false;
+    this.scene.add(this.trail);
     // huevo (conducta "puesta"): mismo aspecto de microscopio que el cuerpo; uK hace el fundido
     this._huevoFx = new THREE.Mesh(new THREE.SphereGeometry(1, 24, 16),
       this._bodyMaterial({ color: "#3fd1b0", rim: "#d8fff4", strength: 0, fill: 0.35, grain: 0.35 }));
     this._huevoFx.scale.set(0.45, 0.3, 0.3); // ~55 × 35 µm, como un huevo real
-    fx.add(this._huevoFx);
-    this.scene.add(fx);
-    // compilar todo ahora (visible un instante, con opacidad 0) y dejarlo oculto
-    fx.children.forEach((o) => { o.visible = true; });
-    try { this.renderer.compile(this.scene, this.camera); } catch (e) { /* sin compile: se compila al primer uso */ }
-    fx.children.forEach((o) => { o.visible = false; });
+    this._huevoFx.visible = false;
+    this.scene.add(this._huevoFx);
+    // compilar los shaders por adelantado y sin bloquear la página (compileAsync); mientras tanto los
+    // efectos quedan "visibles" con opacidad 0, y al terminar se ocultan los que no estén en uso
+    const efectos = [gl, gc, this.trail, this._huevoFx];
+    efectos.forEach((o) => { o.visible = true; });
+    const ocultar = () => {
+      gl.visible = !!this.laser;
+      gc.visible = !!this._collapse;
+      this.trail.visible = this._rastroN >= 2;
+      this._huevoFx.visible = !!this._huevo;
+      this.requestRender();
+    };
+    if (this.renderer.compileAsync) this.renderer.compileAsync(this.scene, this.camera).then(ocultar, ocultar);
+    else ocultar();
   }
 
   // ------------------------------------------------------------------- láser
   fireLaser(index, intensity = 1) {
     this._removeLaser();
     if (!this._running || !this._laserFx) return; // no se ve: no hay nada que animar
-    const target = this.positions[index];
-    const from = target.clone().add(new THREE.Vector3(-0.6, 4.5, 1.2));
-    const dir = target.clone().sub(from);
+    const L = this._laserFx, target = this.positions[index];
+    const from = this._tmpVec.copy(target).add(LASER_DESDE);
+    const dir = this._tmpVec2.copy(target).sub(from);
     const len = dir.length();
-    const L = this._laserFx;
+    const medio = from.addScaledVector(dir, 0.5);
+    dir.normalize();
     for (const m of [L.glow, L.core]) {
-      m.position.copy(from).addScaledVector(dir, 0.5);
-      m.quaternion.setFromUnitVectors(Y_UP, dir.clone().normalize());
+      m.position.copy(medio);
+      m.quaternion.setFromUnitVectors(Y_UP, dir);
       m.scale.set(1, len, 1);
     }
     L.flash.position.copy(target);
     L.ring.position.copy(target);
-    Object.values(L).forEach((m) => { m.visible = true; m.material.opacity = 0; });
-    this.laser = { ...L, t: 0, intensity };
+    for (const m of L.grupo.children) m.material.opacity = 0;
+    L.grupo.visible = true;
+    this.laser = { t: 0, intensity };
     this.requestRender();
   }
 
   _animateLaser(dt) {
     const L = this.laser;
     if (!L) return false;
+    const F = this._laserFx;
     L.t += dt;
     const on = Math.min(1, L.t / 0.15) * Math.max(0, 1 - Math.max(0, L.t - 0.9) / 0.6);
     const k = 0.35 + 0.65 * L.intensity;
     const flicker = this.reducedMotion ? 1 : 0.85 + 0.15 * Math.sin(L.t * 40);
-    L.glow.material.opacity = 0.35 * on * k * flicker;
-    L.core.material.opacity = 0.95 * on * k;
-    L.flash.material.opacity = 0.8 * on * k;
-    L.flash.scale.setScalar(0.6 + 0.4 * Math.sin(Math.min(L.t, 1.2) * 6));
-    L.ring.scale.setScalar(1 + L.t * 5);
-    L.ring.material.opacity = Math.max(0, 0.9 - L.t * 0.7);
-    L.ring.lookAt(this.camera.position);
+    F.glow.material.opacity = 0.35 * on * k * flicker;
+    F.core.material.opacity = 0.95 * on * k;
+    F.flash.material.opacity = 0.8 * on * k;
+    F.flash.scale.setScalar(0.6 + 0.4 * Math.sin(Math.min(L.t, 1.2) * 6));
+    F.ring.scale.setScalar(1 + L.t * 5);
+    F.ring.material.opacity = Math.max(0, 0.9 - L.t * 0.7);
+    F.ring.lookAt(this.camera.position);
     if (L.t > 1.6) this._removeLaser();
     return true;
   }
@@ -911,7 +961,7 @@ export class WormScene {
   _removeLaser() {
     if (!this.laser) return;
     this.laser = null;
-    Object.values(this._laserFx).forEach((m) => { m.visible = false; });
+    this._laserFx.grupo.visible = false;
     this.requestRender();
   }
 
@@ -923,51 +973,56 @@ export class WormScene {
    *  halos se apagan y la elegida destella. Si no hubo spike (vacío), todo se desvanece.
    * Devuelve una promesa que se resuelve al terminar (inmediata con prefers-reduced-motion).
    */
-  collapse(windowIdx, probs, spikeIdx, { superposition = T_SUPERPOSICION, collapse = T_COLAPSO } = {}) {
+  collapse(ventana, probs, spikeIdx, { superposition = T_SUPERPOSICION, collapse = T_COLAPSO } = {}) {
     this._endCollapse();
-    if (this.reducedMotion || !this._running || !this.positions || !windowIdx?.length || !this._collapseFx) {
+    if (this.reducedMotion || !this._running || !this.positions || !ventana?.length || !this._collapseFx) {
       return Promise.resolve();
     }
-    const F = this._collapseFx;
-    const ventana = windowIdx.slice(0, VENTANA_MAX);
+    const F = this._collapseFx, nv = ventana.length;
     const tot = probs.reduce((a, b) => a + Math.max(0, b), 0) || 1;
     const peso = ventana.map((_, i) => Math.sqrt(Math.max(0, probs[i]) / tot)); // √p
     const pmax = Math.max(...peso, 1e-9);
     const rel = peso.map((w) => 0.35 + 0.65 * w / pmax); // brillo relativo de cada neurona
-    const halos = F.halos.slice(0, ventana.length);
-    halos.forEach((h, i) => {
-      h.position.copy(this.positions[ventana[i]]);
+    F.halos.forEach((h) => { h.visible = false; });
+    const halos = ventana.map((g, i) => {
+      const h = F.halo(i);
+      h.position.copy(this.positions[g]);
       h.userData = { r: 0.35 + 1.25 * peso[i] / pmax, ph: i * 0.7 };
       h.material.opacity = 0;
       h.visible = true;
+      return h;
     });
     // partículas: más cuanto más probable era cada neurona
     const starts = [];
     ventana.forEach((g, i) => {
-      const n = Math.round(3 + 14 * (peso[i] / pmax) ** 2);
-      for (let k = 0; k < n && starts.length < PARTICULAS_MAX; k++) {
+      const n = Math.round(3 + (PARTICULAS_POR_NEURONA - 3) * (peso[i] / pmax) ** 2);
+      for (let k = 0; k < n; k++) {
         const j = new THREE.Vector3((Math.random() - 0.5) * 0.3, (Math.random() - 0.5) * 0.3, (Math.random() - 0.5) * 0.3);
         starts.push({ from: this.positions[g].clone().add(j), delay: Math.random() * 0.25 });
       }
     });
-    const pp = F.pts.geometry.attributes.position;
+    let pp = F.pts.geometry.attributes.position;
+    if (starts.length > pp.count) { // ventana más grande que lo previsto: el búfer crece una vez
+      pp = new THREE.BufferAttribute(new Float32Array(starts.length * 3), 3);
+      F.pts.geometry.setAttribute("position", pp);
+    }
     F.pts.geometry.setDrawRange(0, starts.length);
     F.pts.material.opacity = 0;
     // destello final sobre la neurona medida
     const target = spikeIdx != null ? this.positions[spikeIdx] : null;
-    F.pts.visible = !!target;
-    for (const m of [F.flash, F.ring]) {
+    for (const m of [F.pts, F.flash, F.ring]) {
       m.visible = !!target;
       m.material.opacity = 0;
-      m.scale.setScalar(1);
-      if (target) m.position.copy(target);
+      if (m !== F.pts) { m.scale.setScalar(1); if (target) m.position.copy(target); }
     }
+    F.grupo.visible = true;
 
     // sólo cambian las neuronas de la ventana: el resto queda atenuado una vez y no se reescribe
     const N = this.neurons.length;
     const vals = new Float32Array(N);
     if (this.activity) for (let i = 0; i < N; i++) vals[i] = 0.35 * this.activity[i];
-    this.setActivity(vals); // una vez completo: el resto de la red queda atenuado
+    this.setActivity(vals);
+    const aristas = this._aristasDeVentana(ventana); // se calcula una vez, no en cada cuadro
     return new Promise((resolve) => {
       this._collapse = {
         t: 0, T1: superposition, resolve,
@@ -977,7 +1032,7 @@ export class WormScene {
           const T1 = C.T1, t = C.t, T2 = T1 + collapse, TAIL = 0.45;
           if (t >= T2) {
             // cola: la actividad ya la decide main.js; sólo se apaga el destello
-            if (!C.done) { C.done = true; F.pts.visible = false; halos.forEach((h) => { h.visible = false; }); resolve(); }
+            if (!C.done) { C.done = true; F.pts.visible = false; for (const h of halos) h.visible = false; resolve(); }
             const v = Math.min(1, (t - T2) / TAIL);
             F.flash.material.opacity = 0.9 * (1 - v);
             F.ring.material.opacity = 0.9 * (1 - v);
@@ -989,30 +1044,31 @@ export class WormScene {
           if (t < T1) {
             // fase 1: superposición (todas a la vez, latiendo)
             const a = Math.min(1, t / 0.25);
-            ventana.forEach((g, i) => {
+            for (let i = 0; i < nv; i++) {
               const beat = 0.75 + 0.25 * Math.sin(t * 9 + halos[i].userData.ph);
-              vals[g] = Math.min(1, rel[i] * beat * a);
+              vals[ventana[i]] = Math.min(1, rel[i] * beat * a);
               halos[i].scale.setScalar(halos[i].userData.r * (0.85 + 0.2 * beat));
               halos[i].material.opacity = 0.45 * a * rel[i];
-            });
+            }
           } else {
             // fase 2: colapso
             const u = Math.min(1, (t - T1) / collapse);
             const fade = 1 - u;
-            ventana.forEach((g, i) => {
-              const own = g === spikeIdx;
-              vals[g] = own ? Math.min(1, 0.6 + 0.4 * u) : Math.max(0.04, rel[i] * fade * fade);
+            for (let i = 0; i < nv; i++) {
+              const own = ventana[i] === spikeIdx;
+              vals[ventana[i]] = own ? Math.min(1, 0.6 + 0.4 * u) : Math.max(0.04, rel[i] * fade * fade);
               halos[i].material.opacity = own ? 0.45 * fade : 0.45 * fade * fade * rel[i];
-            });
+            }
             if (target) {
               F.pts.material.opacity = Math.min(1, 3 * u) * (u < 0.85 ? 1 : (1 - u) / 0.15);
-              starts.forEach((s, k) => {
+              for (let k = 0; k < starts.length; k++) {
+                const s = starts[k];
                 const v = Math.max(0, Math.min(1, (u - s.delay) / (1 - s.delay)));
                 const e = v * v * (3 - 2 * v);
                 pp.setXYZ(k, s.from.x + (target.x - s.from.x) * e,
                   s.from.y + (target.y - s.from.y) * e + Math.sin(Math.PI * e) * 0.25,
                   s.from.z + (target.z - s.from.z) * e);
-              });
+              }
               pp.needsUpdate = true;
               const f = Math.max(0, (u - 0.6) / 0.4);
               F.flash.material.opacity = 0.9 * f;
@@ -1022,7 +1078,7 @@ export class WormScene {
               F.ring.lookAt(this.camera.position);
             }
           }
-          this.setActivity(vals, { indices: ventana });
+          this._pintar(vals, ventana, aristas);
           return true;
         },
       };
@@ -1033,8 +1089,7 @@ export class WormScene {
     const C = this._collapse;
     if (!C) return;
     this._collapse = null;
-    const F = this._collapseFx;
-    [...F.halos, F.pts, F.flash, F.ring].forEach((o) => { o.visible = false; });
+    this._collapseFx.grupo.visible = false;
     this.requestRender();
     C.resolve();
   }
@@ -1117,7 +1172,7 @@ export class WormScene {
 
   _orbit(angle) {
     const off = this.camera.position.clone().sub(this.controls.target);
-    off.applyAxisAngle(new THREE.Vector3(0, 1, 0), angle);
+    off.applyAxisAngle(Y_UP, angle);
     this.camera.position.copy(this.controls.target).add(off);
     this.requestRender();
   }
@@ -1148,6 +1203,7 @@ export class WormScene {
       if (e.pointerType !== "mouse") return; // en pantallas táctiles no hay "hover"
       this.pointer = local(e);
       this._pointerMoved = true;
+      this.marcarActividad();
       this._wake();
     });
     this.canvas.addEventListener("pointerleave", () => { this.pointer = null; this._pointerMoved = true; this._wake(); });
@@ -1191,6 +1247,7 @@ export class WormScene {
     const w = Math.max(1, this.container.clientWidth), h = Math.max(1, this.container.clientHeight);
     this._w = w; this._h = h; // tamaño en CSS px, cacheado: leerlo en cada cuadro fuerza un reflow
     const Q = QUALITY[this.quality];
+    this.container.dataset.calidad = this.quality; // el CSS quita grano y viñeta fuera de "alta"
     const pr = Math.min(Q.pixelRatio(), Math.sqrt(Q.maxPx / (w * h)));
     this.renderer.setPixelRatio(pr);
     this.renderer.setSize(w, h, false);
@@ -1202,10 +1259,15 @@ export class WormScene {
     this.requestRender();
   }
 
-  _adaptQuality(dt, active) {
+  /**
+   * Mide los FPS sólo entre dos cuadros seguidos de animación continua (el nado y la órbita se
+   * dibujan a 30 fps a propósito y no dicen nada del equipo). Las muestras se acumulan entre pasos.
+   */
+  _adaptQuality(dt, continuo) {
     const P = this._perf;
-    if (!this.autoQuality || !active) { P.frames = 0; P.time = 0; return; }
-    if (dt > 0.5) return; // pestaña en segundo plano o pausa larga: no cuenta
+    const valida = continuo && P.previo && dt < 0.5;
+    P.previo = continuo;
+    if (!this.autoQuality || !valida) return;
     P.frames++;
     P.time += dt;
     if (P.time > 2.0) {
@@ -1225,16 +1287,19 @@ export class WormScene {
     const rawDt = (now - this._last) / 1000;
     this._last = now;
     const dt = Math.min(0.1, rawDt);
-    let active = false;
-    // movimiento "de ambiente" (órbita automática, nado): se dibuja a 30 cuadros por segundo
-    const ambiente = this.controls.autoRotate && !this.arrastrando && !this._tween;
-    if (this._animateTween(dt)) active = true;
-    if (!ambiente && this.controls.update()) active = true; // amortiguación tras arrastrar
-    if (this._animateLaser(dt)) active = true;
-    if (this._collapse && this._collapse.update(dt)) active = true;
+    if (!this._reposo && !this.ocupada && now - this._ultimaEntrada > REPOSO_MS) this._reposo = true;
+    // "continuo": animación a cuadro completo (vuelo, amortiguación, láser, colapso); el movimiento de
+    // ambiente (órbita automática, nado) se dibuja a 30 cuadros por segundo y se detiene en reposo
+    let continuo = false;
+    const orbita = this.controls.autoRotate && !this.arrastrando && !this._tween;
+    if (this._animateTween(dt)) continuo = true;
+    if (!orbita && this.controls.update()) continuo = true; // amortiguación tras arrastrar
+    if (this._animateLaser(dt)) continuo = true;
+    if (this._collapse && this._collapse.update(dt)) continuo = true;
+    let active = continuo;
     this._sinceSwim += dt;
     if (this._sinceSwim >= SWIM_FRAME || active || this._dirty) {
-      if (ambiente && this.controls.update(this._sinceSwim)) active = true;
+      if (orbita && !this._reposo && this.controls.update(this._sinceSwim)) active = true;
       if (this._animateSwim(this._sinceSwim)) active = true;
       this._sinceSwim = 0;
     }
@@ -1252,10 +1317,8 @@ export class WormScene {
     if (!(active || this._dirty)) {
       // nada cambió: no se dibuja; tras ~0.5 s quieto el bucle se detiene del todo (requestRender y la
       // entrada del usuario lo despiertan)
-      if (++this._quietos > 30 && !this._pointerMoved) {
-        this._loopDormido = true;
-        this.renderer.setAnimationLoop(null);
-      }
+      this._perf.previo = false;
+      if (++this._quietos > 30 && !this._pointerMoved) this.renderer.setAnimationLoop((this._loopFn = null));
       return;
     }
     this._quietos = 0;
@@ -1272,6 +1335,6 @@ export class WormScene {
     }
     if (QUALITY[this.quality].bloom) this.composer.render(dt);
     else this.renderer.render(this.scene, this.camera);
-    this._adaptQuality(rawDt, active);
+    this._adaptQuality(rawDt, continuo);
   }
 }

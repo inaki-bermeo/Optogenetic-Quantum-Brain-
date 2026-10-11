@@ -18,36 +18,38 @@ export const respirar = () => new Promise((ok) => requestAnimationFrame(() => se
 // las llamadas rápidas (jobs de la cascada, el circuito de un paso) siempre pasan antes que las
 // lentas que esperan (matplotlib: precarga y figuras, decenas de segundos), así cambiar de paso en
 // el inspector no espera a que termine un dibujo. Lo que ya está corriendo no se interrumpe.
-// Además, de las lentas sólo espera la más nueva: un pedido nuevo (otra vista, otro paso) reemplaza al
-// que todavía no empezó, y cancelarLentas() las descarta todas (al cerrar el inspector).
+// Quien llama puede pasar `vigente()`: si al llegar su turno devuelve false (otro paso, inspector
+// cerrado…), la llamada se descarta sin correr y su promesa se rechaza con error.cancelado.
 const colas = { alta: [], baja: [] };
 let ocupado = false;
-function enCola(tarea, { lenta = false } = {}) {
+function enCola(tarea, { lenta = false, vigente = null } = {}) {
   return new Promise((ok, mal) => {
-    if (lenta) cancelarLentas("superseded by a newer request");
-    colas[lenta ? "baja" : "alta"].push({ tarea, ok, mal });
+    colas[lenta ? "baja" : "alta"].push({ tarea, ok, mal, vigente });
     atender();
   });
 }
 
-/** Descarta las llamadas lentas que aún no empezaron (su promesa se rechaza con error.cancelado). */
-export function cancelarLentas(motivo = "cancelled") {
-  for (const t of colas.baja.splice(0)) t.mal(Object.assign(new Error(motivo), { cancelado: true }));
-}
 async function atender() {
   if (ocupado) return;
   const t = colas.alta.shift() ?? colas.baja.shift();
   if (!t) return;
+  if (t.vigente && !t.vigente()) {
+    t.mal(Object.assign(new Error("no longer needed"), { cancelado: true }));
+    atender();
+    return;
+  }
   ocupado = true;
   try { t.ok(await t.tarea()); } catch (e) { t.mal(e); } finally { ocupado = false; atender(); }
 }
 
 const LENTAS = new Set(["figuras_json", "precargar_figuras"]);
-async function llamar(nombre, ...args) {
+/** Llama a cerebro_q.api.<nombre>(...args); `opciones.vigente` como en enCola. */
+async function llamarCon(opciones, nombre, ...args) {
   const fn = api[nombre];
   if (!fn) throw new Error(`cerebro_q.api.${nombre} does not exist`);
-  return enCola(async () => JSON.parse(texto(await fn.callPromising(...args))), { lenta: LENTAS.has(nombre) });
+  return enCola(async () => JSON.parse(texto(await fn.callPromising(...args))), { ...opciones, lenta: LENTAS.has(nombre) });
 }
+const llamar = (nombre, ...args) => llamarCon({}, nombre, ...args);
 
 export const py = {
   conectoma: (maxAristas = 1200) => llamar("conectoma_json", maxAristas),
@@ -55,11 +57,11 @@ export const py = {
   /** Un paso de la cascada: un circuito de 10 qubits en UN job del backend. */
   paso: (backend, params) => llamar("paso_json", backend, JSON.stringify(params)),
   /** Circuito con draw("mpl") e histograma de Qiskit, como data URI SVG. */
-  figuras: (params) => llamar("figuras_json", JSON.stringify(params)),
+  figuras: (params, opciones = {}) => llamarCon(opciones, "figuras_json", JSON.stringify(params)),
   /** El circuito de un paso (instrucciones de Qiskit), sin ejecutarlo ni usar matplotlib. */
   circuito: (params) => llamar("circuito_json", JSON.stringify(params)),
   /** Carga matplotlib en segundo plano para que la figura draw("mpl") aparezca antes. */
-  precargarFiguras: () => llamar("precargar_figuras"),
+  precargarFiguras: (opciones = {}) => llamarCon(opciones, "precargar_figuras"),
   /** Bytes del cuerpo 3D (data/gusano.glb): Python lo lee y lo entrega en base64. */
   async cuerpo() {
     const b64 = await enCola(async () => texto(await api.cuerpo_glb.callPromising()));

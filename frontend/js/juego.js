@@ -50,7 +50,6 @@ export class Juego {
    * Los logros nuevos se avisan por on.logro.
    */
   paso(r, ctx = {}) {
-    const add = (k) => this._logro(k);
     if (r.spike) {
       if (r.k === 1) this.descubiertas.add(r.centro);
       this.descubiertas.add(r.spike);
@@ -59,30 +58,29 @@ export class Juego {
       this.saltos++;
       this.racha++;
       this.quieto = 0;
-      add("salto");
-      if (r.spike_vecina === false) add("lejos");
-      if (this.racha >= 3) add("racha");
+      this._logro("salto");
+      if (r.spike_vecina === false) this._logro("lejos");
+      if (this.racha >= 3) this._logro("racha");
     } else if (r.spike) {
       this.racha = 0;
       this.quieto++;
-      if (this.quieto >= 4) add("zeno");
+      if (this.quieto >= 4) this._logro("zeno");
     } else {
       this.racha = 0;
-      if (r.motivo_fin === "vacio" && (ctx.theta ?? Math.PI) < Math.PI - 1e-6) add("fallo");
+      if (r.motivo_fin === "vacio" && (ctx.theta ?? Math.PI) < Math.PI - 1e-6) this._logro("fallo");
     }
-    if (ctx.ionq) add("ionq");
-    if (this.descubiertas.size >= 25) add("coleccion");
+    if (ctx.ionq) this._logro("ionq");
+    if (this.descubiertas.size >= 25) this._logro("coleccion");
   }
 
   /** Registra la conducta que actuó el gusano (evento de Motor.aplicar). */
   conducta(ev) {
     if (!ev) return;
-    const add = (k) => this._logro(k);
-    if (/^(ALM[LR]|AVM|PLM[LR])$/.test(ev.nombre)) add("reflejo");
-    if (ev.programa === "escape") add("escape");
-    if (ev.programa === "puesta") add("huevo");
+    if (/^(ALM[LR]|AVM|PLM[LR])$/.test(ev.nombre)) this._logro("reflejo");
+    if (ev.programa === "escape") this._logro("escape");
+    if (ev.programa === "puesta") this._logro("huevo");
     if (ev.entrada.clase === "command interneuron") this.mandos.add(Math.sign(ev.entrada.empuje));
-    if (this.mandos.size === 2) add("tira");
+    if (this.mandos.size === 2) this._logro("tira");
   }
 
   stats() {

@@ -168,7 +168,7 @@ def main():
         caja = pag.locator("#fire-btn").bounding_box()
         pag.mouse.move(caja["x"] + caja["width"] / 2, caja["y"] + caja["height"] / 2)
         pag.mouse.down()
-        pag.wait_for_function("document.getElementById('dose-meter').classList.contains('charging')", timeout=5000)
+        pag.wait_for_function("document.getElementById('hud-deck').classList.contains('charging')", timeout=5000)
         pag.wait_for_timeout(500)
         print("cargando: θ =", pag.inner_text("#theta-val"), "· disparo", pag.inner_text("#pfire"))
         pag.mouse.up()
@@ -254,7 +254,7 @@ def main():
         x, y = caja["x"] + caja["width"] / 2, caja["y"] + caja["height"] / 2
         cdp = ctx.new_cdp_session(pag)
         cdp.send("Input.dispatchTouchEvent", {"type": "touchStart", "touchPoints": [{"x": x, "y": y}]})
-        pag.wait_for_function("document.getElementById('dose-meter').classList.contains('charging')", timeout=5000)
+        pag.wait_for_function("document.getElementById('hud-deck').classList.contains('charging')", timeout=5000)
         pag.wait_for_timeout(500)
         print("teléfono · cargando con el dedo: disparo", pag.inner_text("#pfire"))
         cdp.send("Input.dispatchTouchEvent", {"type": "touchEnd", "touchPoints": []})

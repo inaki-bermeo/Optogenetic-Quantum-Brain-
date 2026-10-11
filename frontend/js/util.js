@@ -13,3 +13,9 @@ export const T_COLAPSO = 0.75;
 /** ¿El foco está en un campo de texto? (las teclas del HUD no deben dispararse mientras se escribe) */
 export const escribiendo = (el = document.activeElement) =>
   !!el && (el.matches("input:not([type=range]):not([type=checkbox]):not([type=radio]), select, textarea") || el.isContentEditable);
+
+/** Pantalla táctil como puntero principal (teléfonos, tabletas). */
+export const COARSE = typeof matchMedia === "function" && matchMedia("(pointer: coarse)").matches;
+
+/** La curva de aceleración del HUD (la misma que --ease en main.css). */
+export const EASE = "cubic-bezier(.2, .8, .2, 1)";
