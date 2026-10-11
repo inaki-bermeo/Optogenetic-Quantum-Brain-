@@ -43,14 +43,23 @@ Patterns match whole names, so `AS\d+` (motor neurons AS1–AS11) never matches 
   mutual inhibition between the backward and forward circuits. The swim direction during any behaviour follows the sign
   of `d`. After the cascade, a backward drive makes the worm keep reversing for a few seconds, then it returns to its
   default forward swim.
-- **Motions** (all in the shader, mirrored in JS by `deform()` for picking and labels; ventral = −Y in the scene):
-  - `reversa` / `avance`: the body wave runs tail → head (backward) or head → tail (forward), faster than the idle swim.
-  - `omega`: a bend deformer curls the whole body about 290° ventrally.
-  - `cabeza`: an extra oscillation in the front 22 % of the body.
-  - `flexion`: a Gaussian bend centred on the neuron's position along the body, dorsal for D*/AS, ventral for V*.
-  - `relajar`: the wave flattens around the neuron's position (that segment goes limp).
+- **Motions are curvature, like real muscle.** Every motion is a curvature profile κ(s) along the body (s = 0 head,
+  1 tail). `escena.js` integrates the midline from it with the body length held constant (anchored at mid-body) and
+  turns each cross-section rigidly with its tangent, so the organs, somas and synapses bend with the body. The table
+  goes to the shader as a texture and is mirrored in JS by `deform()` for picking, labels and the camera
+  (ventral = −Y in the scene; details in `docs/3d-model.md`).
+  - Crawling wave: κ = A·sin(2πs/λ − φ) with λ = 0.65 body lengths (crawling on agar is about 0.6–0.7). The idle swim
+    peaks at κ·L = 2.2; reversal reaches about 6.6 and forward about 5.7, a realistic crawling depth (about 40° of
+    body angle).
+  - `reversa` / `avance`: the wave runs tail → head (backward) or head → tail (forward), faster than the idle swim.
+  - `omega`: a uniform ventral curvature of about 290° in total curls the body into a loop.
+  - `cabeza`: oscillating curvature in the front 22 % of the body.
+  - `flexion`: a Gaussian curvature bump at the neuron's position (about 0.75 rad of turn), dorsal for D*/AS, ventral
+    for V*: one side's muscles contract and the body bends there.
+  - `relajar`: the wave curvature drops around the neuron's position (that segment goes limp).
   - `bombeo`: the pharynx pulses about 4 times per second (real pumping reaches about 250 per minute).
-  - `puesta`: a ventral contraction at the vulva (mid-body) and an egg (about 55 × 35 µm) leaving the body.
+  - `puesta`: a small ventral bend at the vulva and an egg (about 55 × 35 µm) leaving the body, next to the embryos
+    already waiting in the uterus.
   - `quietud`: no motion and a dimmer body.
 - **Sound.** `Sonido.conducta(programa)` plays a short, quiet gesture under the collapse sounds: a falling glide for
   reversal (rising for forward), a slow sweep for the omega turn, six clicks at 4 Hz for pumping, a "pop" when the egg
