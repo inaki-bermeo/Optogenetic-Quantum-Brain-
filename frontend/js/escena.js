@@ -137,6 +137,10 @@ export class WormScene {
     this.controls.autoRotate = false;
     this.controls.autoRotateSpeed = 0.35;
     this.controls.addEventListener("change", () => this.requestRender());
+    // si la persona arrastra la cámara, manda ella: se corta cualquier vuelo y no hay acercamientos
+    this.arrastrando = false;
+    this.controls.addEventListener("start", () => { this.arrastrando = true; this._tween?.resolve(); this._tween = null; });
+    this.controls.addEventListener("end", () => { this.arrastrando = false; });
 
     this.composer = new EffectComposer(this.renderer);
     this.composer.addPass(new RenderPass(this.scene, this.camera));
@@ -561,9 +565,12 @@ export class WormScene {
    * todo volvió al reposo (el colapso siguiente necesita las neuronas en su lugar real); inmediata si
    * no hay movimiento (prefers-reduced-motion, nado desactivado o lienzo oculto).
    */
+  /** ¿Se puede animar una conducta ahora? (no con prefers-reduced-motion, nado apagado o lienzo oculto) */
+  get puedeActuar() { return !this.reducedMotion && this.swim.enabled && this._running && !!this.positions; }
+
   actuar(ev, indice = -1, { dur = 1.6 } = {}) {
     this._endActuar();
-    if (!ev || this.reducedMotion || !this.swim.enabled || !this._running || !this.positions) return Promise.resolve();
+    if (!ev || !this.puedeActuar) return Promise.resolve();
     const U = this.swimU, T = this.motionT;
     const s = indice >= 0 ? Math.min(1, Math.max(0, (this.positions[indice].x - U.uSwimX0.value) / U.uSwimL.value)) : 0.5;
     const atras = ev.d < -0.25;
@@ -576,7 +583,7 @@ export class WormScene {
       case "escape": Object.assign(T, { dir: -1, freq: 1.8, amp: 3 }); dur *= 1.6; break;
       case "omega": Object.assign(T, omega, { bend: Math.sign(ev.lado || -1) * 1.6 * Math.PI }); dur *= 1.25; break;
       case "cabeza": T.cabeza = 0.8; break;
-      case "flexion": T.flex = 0.65 * (ev.lado || 1); U.uFlex.value.set(s, 0, 0.08); break;
+      case "flexion": T.flex = 0.8 * (ev.lado || 1); U.uFlex.value.set(s, 0, 0.09); break;
       case "relajar": Object.assign(T, { amp: 2, relaja: 1 }); U.uRelaja.value.set(s, 0, 0.12); break;
       case "bombeo": T.bombeo = 1; break;
       case "puesta": T.flex = -0.25; U.uFlex.value.set(0.5, 0, 0.05); this._ponerHuevo(); break;
@@ -594,7 +601,7 @@ export class WormScene {
         if (this._huevo) {
           const u = Math.min(1, Math.max(0, (A.t - 0.4) / (A.dur - 0.4)));
           this._huevo.position.y = this._huevo.userData.y0 - 0.9 * u;
-          this._huevo.material.opacity = 0.75 * Math.sin(Math.PI * u);
+          this._huevo.material.uniforms.uK.value = 0.9 * Math.sin(Math.PI * u);
         }
         if (!A.vuelta && A.t >= A.dur) {
           A.vuelta = true;
@@ -629,16 +636,29 @@ export class WormScene {
     this._driveT = atras ? 4 : 0;
   }
 
-  /** Un huevo sale por la vulva (cara ventral, a mitad del cuerpo). */
-  _ponerHuevo() {
-    this._quitarHuevo();
+  /** Centro del lazo del giro omega (la curva ventral de actuar), para encuadrarlo entero. */
+  centroOmega() {
+    const U = this.swimU;
+    return new THREE.Vector3(U.uSwimX0.value + 0.5 * U.uSwimL.value, -U.uSwimL.value / (1.6 * Math.PI), 0);
+  }
+
+  /** La vulva: cara ventral del cuerpo, a mitad del largo (en reposo). */
+  vulva() {
     const U = this.swimU, x = U.uSwimX0.value + 0.5 * U.uSwimL.value;
     let cy = 0, cz = 0, r = 0.8;
     if (this._linea) [cy, cz, r] = this._linea(x);
     else if (this.bodyBox) { cy = (this.bodyBox.min.y + this.bodyBox.max.y) / 2; r = (this.bodyBox.max.y - this.bodyBox.min.y) / 2; }
-    const egg = new THREE.Mesh(new THREE.SphereGeometry(1, 16, 12), this._glow(new THREE.Color("#c9fff0").multiplyScalar(1.3), 0));
+    return new THREE.Vector3(x, cy - 0.85 * r, cz);
+  }
+
+  /** Un huevo sale por la vulva. */
+  _ponerHuevo() {
+    this._quitarHuevo();
+    // mismo aspecto de microscopio que el cuerpo: borde brillante y relleno tenue (uK hace el fundido)
+    const egg = new THREE.Mesh(new THREE.SphereGeometry(1, 24, 16),
+      this._bodyMaterial({ color: "#3fd1b0", rim: "#d8fff4", strength: 0, fill: 0.35, grain: 0.35 }));
     egg.scale.set(0.45, 0.3, 0.3); // ~55 × 35 µm, como un huevo real
-    egg.position.set(x, cy - 0.85 * r, cz);
+    egg.position.copy(this.vulva());
     egg.userData.y0 = egg.position.y;
     this.scene.add(egg);
     this._huevo = egg;
@@ -969,11 +989,18 @@ export class WormScene {
   cancelCollapse() { this._endCollapse(); }
 
   /** Vuelo de cámara (con aceleración) hasta mirar la neurona `index` desde `dist` unidades. */
-  flyTo(index, { dur = 1200, dist = 6 } = {}) {
-    const p = this.deform(this.positions[index].clone());
+  flyTo(index, opts) { return this.flyToPoint(this.deform(this.positions[index].clone()), opts); }
+
+  /** Vuelo de cámara hasta mirar el punto `p` (escena) desde `dist` unidades, sin cambiar de lado. */
+  flyToPoint(p, { dur = 1200, dist = 6 } = {}) {
     const dir = this.camera.position.clone().sub(this.controls.target).normalize();
     return this._volar(p.clone().addScaledVector(dir, dist).add(new THREE.Vector3(0, dist * 0.18, 0)), p, dur);
   }
+
+  /** Vista actual de la cámara, para volver a ella después de un acercamiento. */
+  guardarVista() { return { pos: this.camera.position.clone(), target: this.controls.target.clone() }; }
+
+  volverVista(v, dur = 600) { return v ? this._volar(v.pos, v.target, dur) : Promise.resolve(); }
 
   /** Vuelve a la vista general. */
   flyHome(dur = 1200) { return this._volar(new THREE.Vector3(-1.2, 6.0, 23.5), new THREE.Vector3(0, 0, 0), dur); }

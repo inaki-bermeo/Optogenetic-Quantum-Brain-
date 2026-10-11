@@ -333,7 +333,7 @@ async function fire(thetaCarga = null) {
       applyCascadeScene(r);
       const ev = r.spike && r.spike !== actuo ? motor.aplicar(r.spike) : null;
       if (r.spike) actuo = r.spike;
-      if (ev) cascade.conductas.push(ev.entrada.texto);
+      if (ev) { cascade.conductas.push(ev.entrada.texto); juego.conducta(ev); }
       narrateMeasurement(r, ev);
       renderConducta(r, ev);
       juego.paso(r, { theta: params.theta, ionq: state.backend.ionq });
@@ -343,7 +343,7 @@ async function fire(thetaCarga = null) {
         break;
       }
       centro = r.spike;
-      if (ev && !REDUCED && !ui.inspector && !cascade.stop) await scene.actuar(ev, r.spike_indice);
+      if (ev && !REDUCED && !ui.inspector && !cascade.stop) await actuar(ev, r.spike_indice);
       else if (!REDUCED) await sleep(r.salto ? 600 : 250);
       motor.decaer();
     }
@@ -422,6 +422,24 @@ function narrateMeasurement(r, ev = null) {
   }
   if (ev) html += ` In the real worm, ${esc(ev.nombre)} (${esc(ev.entrada.clase)}) means: <b>${esc(ev.entrada.texto)}</b>.`;
   narrate(`Step ${r.k} · measured`, html, "collapse");
+}
+
+// Conductas que pasan en una parte del cuerpo: la cámara se acerca un momento y vuelve a la vista de la persona.
+// El giro omega curva todo el cuerpo hacia abajo (ventral): la cámara baja para encuadrar el lazo entero.
+const ACERCAR = new Set(["cabeza", "flexion", "relajar", "bombeo", "puesta", "omega", "escape"]);
+
+/** El gusano actúa la conducta (con su sonido y, si es local, un acercamiento de cámara). */
+async function actuar(ev, indice) {
+  if (!scene.puedeActuar) return;
+  sound.conducta(ev.programa);
+  if (!ACERCAR.has(ev.programa) || scene.arrastrando || indice == null) { await scene.actuar(ev, indice); return; }
+  const vista = scene.guardarVista();
+  const opts = { dur: 700, dist: 11 };
+  if (ev.programa === "omega" || ev.programa === "escape") scene.flyToPoint(scene.centroOmega(), { dur: 900, dist: 22 });
+  else if (ev.programa === "puesta") scene.flyToPoint(scene.vulva(), opts);
+  else scene.flyTo(indice, opts);
+  await scene.actuar(ev, indice);
+  if (!scene.arrastrando) await scene.volverVista(vista, 600);
 }
 
 /** Chip de conducta (o "no known movement") para la neurona medida. */

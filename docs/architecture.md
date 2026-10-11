@@ -119,7 +119,7 @@ If the measured neuron has a known behaviour (`js/conducta.js`), the next step w
 
 - **Hold to charge.** The charge is the laser dose θ, rising from 0 to π with an ease-out. The meter shows the fire chance sin²(θ/2), and that θ goes into the first circuit's `RX(θ)`. A tap or Enter uses the dose set in the menu.
 - **Stats.** Steps, jumps, the current streak, and the neurons that actually fired (out of 302).
-- **Achievements.** Triggered from fields already in each step result (`salto`, `spike`, `motivo_fin`, `spike_vecina`). Each one states the physics it illustrates. Nothing is scored that the physics doesn't say.
+- **Achievements.** Triggered from fields already in each step result (`salto`, `spike`, `motivo_fin`, `spike_vecina`), plus four from the worm's behaviour (`Juego.conducta`, see [behaviour.md](behaviour.md)). Each one states the physics it illustrates. Nothing is scored that the physics doesn't say.
 
 ## Performance design
 

@@ -52,6 +52,18 @@ Patterns match whole names, so `AS\d+` (motor neurons AS1–AS11) never matches 
   - `bombeo`: the pharynx pulses about 4 times per second (real pumping reaches about 250 per minute).
   - `puesta`: a ventral contraction at the vulva (mid-body) and an egg (about 55 × 35 µm) leaving the body.
   - `quietud`: no motion and a dimmer body.
+- **Sound.** `Sonido.conducta(programa)` plays a short, quiet gesture under the collapse sounds: a falling glide for
+  reversal (rising for forward), a slow sweep for the omega turn, six clicks at 4 Hz for pumping, a "pop" when the egg
+  leaves, a fading tone for quiescence and a soft thump for local bends.
+- **Camera.** For behaviours that happen in one place (`cabeza`, `flexion`, `relajar`, `bombeo`, `puesta`) the camera
+  glides in (0.7 s, to 11 scene units) toward the neuron, or toward the vulva for egg laying, and returns to the viewer's own view (0.6 s)
+  when the worm is back at rest. For the omega turn (and the escape that ends in one) the camera instead pans down to frame the whole ventral loop.
+  Dragging the camera cancels the flight, and the other whole-body behaviours keep the wide view.
+- **Achievements** (`js/juego.js`, `Juego.conducta`), each stating one real fact:
+  - *Reflex*: a touch neuron (ALM, AVM, PLM) fired and the worm reacted (Chalfie 1985);
+  - *Escape artist*: ASH fired, so the worm reversed and then made an omega turn;
+  - *First egg*: an egg-laying neuron (HSN or VC) fired;
+  - *Tug of war*: forward and backward command neurons both fired in one cascade, and their pushes cancelled.
 - **Reduced motion.** With `prefers-reduced-motion`, with the swim turned off, or while the canvas is hidden, nothing
   is animated and the cascade does not wait. The behaviour is still described in text and announced to screen readers.
 

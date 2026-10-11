@@ -95,7 +95,7 @@ def probar_conducta(nav, url, out, errores):
     pag.wait_for_timeout(900)
     pag.screenshot(path=str(out / "6_conducta.png"), **SHOT)
     esperar_fin_cascada(pag)
-    assert "worm" in pag.inner_text("#casc-chips"), "falta el chip de conducta"
+    assert "worm" in pag.inner_text("#casc-chips").lower(), "falta el chip de conducta"
     assert "Waiting" not in pag.inner_text("#casc-conducta"), "no se describió la conducta"
     print("conducta:", pag.inner_text("#casc-conducta")[:120])
 
@@ -232,7 +232,7 @@ def main():
         pag.keyboard.press("Enter")
         esperar_fin_cascada(pag, 180000)
         print("reduced motion:", pag.inner_text("#casc-estado"))
-        assert "worm" in pag.inner_text("#casc-chips"), "reduced motion: falta el chip de conducta"
+        assert "worm" in pag.inner_text("#casc-chips").lower(), "reduced motion: falta el chip de conducta"
         nav.close()
     if errores:
         print("\n".join(errores))

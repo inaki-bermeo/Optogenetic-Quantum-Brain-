@@ -56,9 +56,10 @@ This effort is supported by Qollab & IonQ.
   - *Quantum leap*: the spike jumped;
   - *Zeno trap*: the spike stayed put 4 times in a row;
   - *Misfire*: θ < π and no neuron fired;
-  - *Long range*: the spike landed two synapses away.
+  - *Long range*: the spike landed two synapses away;
+  - *Reflex*, *Escape artist*, *First egg* and *Tug of war*: a touch neuron, ASH, an egg-laying neuron, or both forward and backward command neurons fired, and the worm reacted as the real one does (step 8).
 - **The worm** looks like a fluorescence micrograph: a translucent body with cuticle rings, the pharynx and the intestine inside, and a slow swimming wave that pauses while each circuit is measured.
-- **The worm acts.** When the measured neuron has a known role in the real animal, the worm acts it out before the next step: AVA backs it up, AVB drives it forward, ASH triggers an escape with an omega turn, MC pumps the pharynx, HSN lays an egg, RIS makes it stop. A chip and the "Worm behaviour" box in the scanner name the behaviour and its references. Neurons with no known direct effect leave the worm still (see step 8).
+- **The worm acts.** When the measured neuron has a known role in the real animal, the worm acts it out before the next step: AVA backs it up, AVB drives it forward, ASH triggers an escape with an omega turn, MC pumps the pharynx, HSN lays an egg, RIS makes it stop. A chip and the "Worm behaviour" box in the scanner name the behaviour and its references. Each behaviour has its own soft sound, and for local ones (head, a body segment, the pharynx, the vulva) the camera glides in for a moment and returns to your view. Neurons with no known direct effect leave the worm still (see step 8).
 - **Sound** (toggle in the top bar):
   - the laser charges with a rising tone and fires with a falling chirp;
   - the superposition is ten slightly detuned tones that glide into the note of the measured neuron, so every cascade plays its own pentatonic melody;
@@ -194,6 +195,8 @@ The window is the neuron that fired plus its 9 neighbours with the most synapses
 
 ### 8. From spike to behaviour
 
+![The worm mid-escape after the cascade measured the nociceptor ASHL: the body curls ventrally into an omega turn, the mission log says what ASHL means in the real worm, and the scanner shows the "escape: reversal, then omega turn" chip with its references.](https://raw.githubusercontent.com/inaki-bermeo/Optogenetic-Quantum-Brain-/main/docs/card/behaviour.jpg)
+
 **In plain words.** The cascade is our quantum model. What the worm then does is real biology: each neuron class is mapped to what experiments saw when those neurons were switched on with light or removed.
 
 | Neurons | What the real worm does | References |
@@ -247,10 +250,10 @@ It also walks through the real steps needed to take the physics to hardware: Tro
 - **The intro** is a modal dialog: focus starts on *Press start*, the page behind it is inactive, and **Esc** skips it.
 - **The game works without holding anything.** Tap or **Enter** fires at the dose set in the menu, and the dose slider stays available there.
 - **Every control has a label,** and a **?** next to each technical term explains it in plain words.
-- **Screen readers** get a live mission log and announcements for each step and achievement.
+- **Screen readers** get a live mission log and announcements for each step, achievement and worm behaviour.
 - **Every chart** has a data table behind it.
 - **Contrast:** all text is at least 5.5:1 against the background.
-- ***prefers-reduced-motion*** turns off the intro animations, camera flights, glitches and sweeps.
+- ***prefers-reduced-motion*** turns off the intro animations, camera flights, glitches and sweeps. The worm's behaviours are then described in text only, and the cascade does not wait for them.
 
 | Key | Action |
 | --- | --- |

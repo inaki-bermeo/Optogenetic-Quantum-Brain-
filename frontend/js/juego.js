@@ -19,6 +19,11 @@ export const LOGROS = {
   ionq: { t: "Ion trap", d: "A circuit ran on IonQ: trapped ions, all-to-all connectivity." },
   racha: { t: "Chain reaction", d: "3 jumps in a row: the wave kept leaving its centre." },
   coleccion: { t: "Collector", d: "25 different neurons fired. The worm has 302." },
+  // conducta del gusano (js/conducta.js): cada logro es un hecho de la biología real
+  reflejo: { t: "Reflex", d: "A touch neuron fired and the worm reacted: the touch reflex mapped by Chalfie et al. in 1985." },
+  escape: { t: "Escape artist", d: "ASH sensed danger: the worm backed up, then made an omega turn to head away." },
+  huevo: { t: "First egg", d: "An egg-laying neuron (HSN or VC) fired, and the vulva pushed out an egg." },
+  tira: { t: "Tug of war", d: "Forward and backward command neurons both fired: their commands cancel, like the real circuits." },
 };
 
 export class Juego {
@@ -28,6 +33,7 @@ export class Juego {
     this.saltos = 0;
     this.racha = 0;
     this.quieto = 0;
+    this.mandos = new Set(); // sentidos de las neuronas de mando que dispararon en esta cascada
     this.on = { logro: () => {}, stats: () => {} };
   }
 
@@ -35,6 +41,7 @@ export class Juego {
   inicio() {
     this.racha = 0;
     this.quieto = 0;
+    this.mandos.clear();
     this._emitir("stats");
     return this._logro("primera");
   }
@@ -68,6 +75,19 @@ export class Juego {
     if (ctx.ionq) add("ionq");
     if (this.descubiertas.size >= 25) add("coleccion");
     this._emitir("stats");
+    return nuevos;
+  }
+
+  /** Registra la conducta que actuó el gusano (evento de Motor.aplicar). Devuelve los logros nuevos. */
+  conducta(ev) {
+    const nuevos = [];
+    if (!ev) return nuevos;
+    const add = (k) => { const l = this._logro(k); if (l) nuevos.push(l); };
+    if (/^(ALM[LR]|AVM|PLM[LR])$/.test(ev.nombre)) add("reflejo");
+    if (ev.programa === "escape") add("escape");
+    if (ev.programa === "puesta") add("huevo");
+    if (ev.entrada.clase === "command interneuron") this.mandos.add(Math.sign(ev.entrada.empuje));
+    if (this.mandos.size === 2) add("tira");
     return nuevos;
   }
 
