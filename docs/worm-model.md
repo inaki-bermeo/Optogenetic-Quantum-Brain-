@@ -38,6 +38,7 @@ body**. The previous body contained 301.
   | --- | --- |
   | Crawling wave | κ = A·sin(2πs/λ − φ), λ = 0.65 body lengths. φ grows for forward (wave head → tail) and shrinks for reversal. Idle κ·L = 2.2; reversal about 6.6 (about 40° of body angle, a realistic crawl) |
   | Local bend (motor neuron) | A Gaussian bump at the neuron's position, dorsal or ventral (about 0.75 rad of turn) |
+  | Posture memory | 75 % of each local bend stays: the bends of a cascade add up (dorsal and ventral cancel), GABA neurons erase them locally, and the posture fades with τ = 25 s |
   | Relaxation (GABA neuron) | The wave's curvature drops around the neuron |
   | Head swing | Oscillating curvature in the front 22 % |
   | Omega turn | Uniform ventral curvature, about 290° in total, which curls the body into a loop |
@@ -47,6 +48,12 @@ body**. The previous body contained 301.
   so the worm doesn't drift. Each cross-section **turns rigidly** with its tangent.
 - The result is a 64-sample table, uploaded as a small texture (`uCurva`) and read by every material, so the body, the
   organs, the neurons, the synapses and the effects all bend with one function.
+- **Synapses run inside the body.** A straight segment only bends at its two ends, so a head-to-tail synapse used to cut
+  across the outside of a curved worm (a fan of lines across the loop of an omega turn). Each synapse, and the cascade
+  trail, is now a polyline that follows the body axis (one vertex about every 0.4 scene units), so it bends with the
+  body. In its middle stretch each long synapse runs in a nerve cord against the body wall, ventral like the real
+  worm's long axons (dorsal only when both neurons sit dorsally), so the pharynx, intestine and gonad stay visible. The
+  path is schematic, not each axon's real route.
 - `WormScene.deform()` reads the same table on the CPU, so picking a neuron, its label and the camera flights always
   match what is drawn.
 - The texture is only re-uploaded on frames where something moves.

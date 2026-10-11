@@ -4,7 +4,8 @@
 
 // Optogenetic Quantum Brain · Qollab page (JS / Qiskit), styled as a sci-fi lab HUD
 //
-// Intro (js/intro.js): boot console while Python loads → title → three beats on the real scene.
+// Intro (js/intro.js): boot console while Python loads → title → five beats (optogenetics, Nobel 2026, then three on the
+// real scene).
 // HUD: the laser RX(θ) excites a neuron (hold to charge θ, tap to fire at the menu dose) and every step of
 //   the spike cascade is a 10-qubit Qiskit circuit (the neuron that fired + its 9 most connected
 //   neighbours) run on the selected `backend`. Measuring collapses the walk onto one neuron, which fires
@@ -362,7 +363,10 @@ async function fire(thetaCarga = null) {
       }
       centro = r.spike;
       if (ev && !REDUCED && !ui.inspector && !cascade.stop) await actuar(ev, r.spike_indice);
-      else if (!REDUCED) await sleep(r.salto ? 350 : 150);
+      else {
+        if (ev) scene.acercarComida(ev.entrada.empuje); // sin animación, la comida igual se acerca o se aleja
+        if (!REDUCED) await sleep(r.salto ? 350 : 150);
+      }
       motor.decaer();
     }
   } catch (e) {
@@ -450,7 +454,7 @@ const ACERCAR = new Set(["cabeza", "flexion", "relajar", "bombeo", "puesta", "om
 
 /** El gusano actúa la conducta (con su sonido y, si es local, un acercamiento de cámara). */
 async function actuar(ev, indice) {
-  if (!scene.puedeActuar) return;
+  if (!scene.puedeActuar) { scene.acercarComida(ev.entrada.empuje); return; }
   sound.conducta(ev.programa);
   if (!ACERCAR.has(ev.programa) || scene.arrastrando || indice == null) { await scene.actuar(ev, indice); return; }
   const vista = scene.guardarVista();
@@ -969,6 +973,12 @@ function bindUI() {
     return false;
   });
   scene.on("pick", (i) => selectSource(state.neurons[i].name));
+  // el gusano alcanzó la bacteria comida: traga (la faringe bombea), suena y cuenta
+  scene.on("comer", () => {
+    sound.comer();
+    juego.comer();
+    announce("The worm reached a bacterium and swallowed it. Another one appears ahead.");
+  });
   const tip = $("tooltip");
   let tipIndex = -1;
   scene.on("hover", (i, px) => {

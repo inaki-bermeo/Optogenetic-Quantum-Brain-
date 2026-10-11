@@ -9,7 +9,7 @@ Code: `frontend/js/conducta.js` (table and motor drive), `frontend/js/escena.js`
 
 ## The table
 
-130 of the 302 neurons have a behaviour. The other 172 show "no known movement".
+136 of the 302 neurons have a behaviour. The other 166 show "no known movement".
 
 | Neurons | Class | What the worm does | `programa` | Drive | References |
 | --- | --- | --- | --- | --- | --- |
@@ -30,6 +30,7 @@ Code: `frontend/js/conducta.js` (table and motor drive), `frontend/js/escena.js`
 | AIBL/R | navigation interneurons | tendency to reverse | `tendencia` | −0.3 | Gray 2005; Gordus 2015 |
 | AIYL/R | navigation interneurons | tendency to keep going forward | `tendencia` | +0.3 | Gray 2005; Li 2014 |
 | AIZL/R | navigation interneurons | tendency to turn | `cabeza` | 0 | Gray 2005 |
+| AWAL/R, AWCL/R, ASEL/R | chemosensory neurons (smell / taste) | smells food: turns towards it and crawls closer | `olfato` | +0.4 | Bargmann & Horvitz 1991; Bargmann, Hartwieg & Horvitz 1993 |
 
 Patterns match whole names, so `AS\d+` (motor neurons AS1–AS11) never matches the amphid neurons ASH, ASI, ASJ or ASK.
 
@@ -43,6 +44,16 @@ Patterns match whole names, so `AS\d+` (motor neurons AS1–AS11) never matches 
   mutual inhibition between the backward and forward circuits. The swim direction during any behaviour follows the sign
   of `d`. After the cascade, a backward drive makes the worm keep reversing for a few seconds, then it returns to its
   default forward swim.
+- **Food (bacteria).** *C. elegans* eats bacteria (in the lab, a lawn of *E. coli* OP50). Neon rods drift around the worm,
+  green like GFP-labelled *E. coli* under the microscope and some magenta (mCherry); they are not to scale (a 2 µm
+  bacterium would be invisible). One of them, bigger and brighter, is the food the worm interacts with:
+  - the worm is anchored, so when it moves the world moves instead: crawling forward (the idle swim, and the forward push
+    of AVB, PVC, PLM, B-type motor neurons, AIY…) brings the food closer and makes the background bacteria flow towards
+    the tail; a backward push (AVA, AVD, AVE, ALM, AVM, ASH, AIB…) moves it away (`acercarComida(empuje)`);
+  - a chemosensory neuron (AWA, AWC, ASE) makes the food glow, sends a ring from it (the smell) and turns the head
+    towards it (`giro`), with a small forward push: chemotaxis;
+  - when the food reaches the mouth the worm swallows it (the pharynx pumps), `on("comer")` plays the swallow sound and
+    unlocks *First meal*, and a new bacterium appears ahead.
 - **Motions are curvature, like real muscle.** Every motion is a curvature profile κ(s) along the body (s = 0 head,
   1 tail). `escena.js` integrates the midline from it with the body length held constant (anchored at mid-body) and
   turns each cross-section rigidly with its tangent, so the organs, somas and synapses bend with the body. The table
@@ -55,15 +66,21 @@ Patterns match whole names, so `AS\d+` (motor neurons AS1–AS11) never matches 
   - `omega`: a uniform ventral curvature of about 290° in total curls the body into a loop.
   - `cabeza`: oscillating curvature in the front 22 % of the body.
   - `flexion`: a Gaussian curvature bump at the neuron's position (about 0.75 rad of turn), dorsal for D*/AS, ventral
-    for V*: one side's muscles contract and the body bends there.
-  - `relajar`: the wave curvature drops around the neuron's position (that segment goes limp).
+    for V*: one side's muscles contract and the body bends there. **Posture memory:** 75 % of the bend stays after
+    the gesture (about 0.56 rad, 32°), so the bends of a cascade add up into a posture, dorsal and ventral ones cancel,
+    and the whole posture fades with a time constant of 25 s. A qualitative stand-in for muscle tone that outlasts a
+    single command, not a measured value.
+  - `relajar`: the wave curvature drops around the neuron's position (that segment goes limp), and the posture
+    remembered there is erased.
   - `bombeo`: the pharynx pulses about 4 times per second (real pumping reaches about 250 per minute).
   - `puesta`: a small ventral bend at the vulva and an egg (about 55 × 35 µm) leaving the body, next to the embryos
     already waiting in the uterus.
   - `quietud`: no motion and a dimmer body.
+  - `olfato`: a static head bend towards the food (`giro`, the front 30 % of the body) on top of a gentle forward crawl.
 - **Sound.** `Sonido.conducta(programa)` plays a short, quiet gesture under the collapse sounds: a falling glide for
   reversal (rising for forward), a slow sweep for the omega turn, six clicks at 4 Hz for pumping, a "pop" when the egg
-  leaves, a fading tone for quiescence and a soft thump for local bends.
+  leaves, a fading tone for quiescence, two short rising "sniffs" for chemosensation and a soft thump for local bends;
+  `Sonido.comer()` plays a low "plop" and fast pumping clicks when the worm swallows the food.
 - **Camera.** For behaviours that happen in one place (`cabeza`, `flexion`, `relajar`, `bombeo`, `puesta`) the camera
   glides in (0.7 s, to 11 scene units) toward the neuron, or toward the vulva for egg laying, and returns to the viewer's own view (0.6 s)
   when the worm is back at rest. For the omega turn (and the escape that ends in one) the camera instead pans down to frame the whole ventral loop.
@@ -72,7 +89,9 @@ Patterns match whole names, so `AS\d+` (motor neurons AS1–AS11) never matches 
   - *Reflex*: a touch neuron (ALM, AVM, PLM) fired and the worm reacted (Chalfie 1985);
   - *Escape artist*: ASH fired, so the worm reversed and then made an omega turn;
   - *First egg*: an egg-laying neuron (HSN or VC) fired;
-  - *Tug of war*: forward and backward command neurons both fired in one cascade, and their pushes cancelled.
+  - *Tug of war*: forward and backward command neurons both fired in one cascade, and their pushes cancelled;
+  - *Follow your nose*: a chemosensory neuron (AWA, AWC, ASE) fired and the worm turned towards the bacteria;
+  - *First meal*: the worm reached a bacterium and swallowed it.
 - **Reduced motion.** With `prefers-reduced-motion`, with the swim turned off, or while the canvas is hidden, nothing
   is animated and the cascade does not wait. The behaviour is still described in text and announced to screen readers.
 
@@ -84,11 +103,13 @@ Patterns match whole names, so `AS\d+` (motor neurons AS1–AS11) never matches 
    In the real worm, behaviour comes from whole circuits, and the same neuron can matter differently with context.
 3. **Local bends are approximate.** Ventral-cord motor neurons have their cell bodies in the ventral cord, while their
    axons reach dorsal or ventral muscles along a stretch of the body. The bend is placed at the soma's position.
-4. **Silence is deliberate.** 172 neurons have no direct, established effect on movement, so they do not move the worm.
+4. **Silence is deliberate.** 166 neurons have no direct, established effect on movement, so they do not move the worm.
 
 ## References
 
 - Avery L, Horvitz HR (1989). Pharyngeal pumping continues after laser killing of the pharyngeal nervous system of *C. elegans*. *Neuron* 3:473–485.
+- Bargmann CI, Horvitz HR (1991). Chemosensory neurons with overlapping functions direct chemotaxis to multiple chemicals in *C. elegans*. *Neuron* 7:729–742.
+- Bargmann CI, Hartwieg E, Horvitz HR (1993). Odorant-selective genes and neurons mediate olfaction in *C. elegans*. *Cell* 74:515–527.
 - Chalfie M, Sulston JE, White JG, Southgate E, Thomson JN, Brenner S (1985). The neural circuit for touch sensitivity in *Caenorhabditis elegans*. *J Neurosci* 5:956–964.
 - Desai C, Garriga G, McIntire SL, Horvitz HR (1988). A genetic pathway for the development of the *Caenorhabditis elegans* HSN motor neurons. *Nature* 336:638–646.
 - Goodman MB, Hall DH, Avery L, Lockery SR (1998). Active currents regulate sensitivity and dynamic range in *C. elegans* neurons. *Neuron* 20:763–772.

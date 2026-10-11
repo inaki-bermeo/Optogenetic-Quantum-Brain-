@@ -84,9 +84,10 @@ The module instances are `scene` (WormScene), `sound` (Sonido), `juego` (Juego) 
 | Neurons | `setActivity(values)` (0..1 per neuron), `setHighlight(indices)` (rings), `setTrail(indices)`, `setLabel(index, text)` (lock-on reticle), `setEdgesVisible(v)` |
 | Effects | `fireLaser(index, intensity)`, `collapse(ventana, probs, spikeIdx, {superposition, collapse})` → Promise, `collapseNow()`, `cancelCollapse()` |
 | Behaviour | `actuar(ev, index)` → Promise (resolves when the return to rest starts), `puedeActuar`, `setDrive(d)`, `centroOmega()`, `vulva()` |
+| Food | `acercarComida(empuje)` (a forward push brings the food bacterium closer, a backward one moves it away; `actuar` calls it, and `main.js` calls it directly when nothing is animated), `comida` (state: distance to the mouth, smell glow, eating). The decorative bacteria are one `InstancedMesh` animated in its own shader (tumbling, Brownian drift, flow along x as the worm "moves"); they do not use `wormDeform` |
 | Swim | `setSwim(on)`, `setSwimEnabled(v)`, `deform(p)` (JS copy of the shader deformation) |
 | Camera | `flyTo(index, {dur, dist})`, `flyToPoint(p, …)`, `flyHome()`, `guardarVista()` / `volverVista(v)`, `resetView()`, `setCinematic(on)`, `setAutoRotate(v)`, `arrastrando` |
-| Events | `on("pick" \| "hover" \| "key" \| "quality", fn)` |
+| Events | `on("pick" \| "hover" \| "key" \| "quality" \| "comer", fn)`; `comer` fires when the worm swallows the food |
 
 **Render loop states.**
 - *Paused:* `setPaused(true)`, or the canvas is off-screen (IntersectionObserver), or the tab is hidden. There is no animation loop, and in-flight collapse, behaviour and laser promises resolve at once so the cascade never hangs.
@@ -106,8 +107,10 @@ The module instances are `scene` (WormScene), `sound` (Sonido), `juego` (Juego) 
 
 **Drawing.**
 - Neurons are one `InstancedMesh`; synapses are one `LineSegments`. Colours come from a 256-entry LUT.
+- Each synapse is a polyline inside the body (`_ruta`, `_construirSinapsis`): it steps along the body axis every `PASO_RUTA` scene units, interpolates the distance to the midline and, in its middle stretch, runs in a nerve cord against the body wall (ventral by default, dorsal only when both neurons sit dorsally; each synapse at its own depth between `CORDON_R − CORDON_GROSOR` and `CORDON_R` of the radius), so it never covers the pharynx, intestine or gonad and never goes past `RADIO_RUTA`. The curvature shader bends it with the worm. `edgeOff[k]`…`edgeOff[k+1]` are synapse k's vertices; `edgeAt[k]` dims long ones (they share the cord, and additive blending would saturate). They are straight until the body loads. The cascade trail uses the same route.
 - `_pintar(values, neurons?, synapses?)` repaints everything, or only a subset (the collapse repaints only the 10 window neurons and their synapses each frame).
 - Every material that moves with the worm goes through `_sw(mat)` (or `_bodyMaterial`), which injects `SWIM_GLSL` / `wormDeform`. Motion is **curvature kinematics**: `_writeMotion` builds κ(s) from the eased `motion` values, `_integrarCurva` integrates the midline (constant length, anchored at mid-body) into a 64-sample table, and `_subirCurva` uploads it as the `uCurva` DataTexture. Shared uniforms in `swimU`: `uCurva`, `uCurvaX`, `uSwimT` (pump timing), `uBrillo`.
+- **Posture memory** (`_postura`, `_recordarFlexion`, `_relajarPostura`, `_kPostura`, `_decaerPostura`): each `flexion` splits its bend into a passing gesture (`1 − POSTURA_K`) and a bump that stays in the posture (`POSTURA_K`). Remembered bumps add up in `_writeMotion` (capped at `POSTURA_MAX`), `relajar` (GABA) erases the posture around its neuron, and everything fades with `POSTURA_TAU`. `_animateSwim` keeps running while any bump is left.
 - `deform(p)` reads the same table in JS for picking, labels and camera flights, so the two cannot drift apart.
 - Organs from the `.glb` are mapped by name (`ORGANOS`) to their own `_bodyMaterial` (`MATERIAL_ORGANO`); `vulva()` reads the model's `vulva_um` extra.
 - The body (`_bodyMaterial`) is a custom fluorescence shader: Fresnel rim, cuticle rings, grain, pharynx pumping.
@@ -123,9 +126,11 @@ The module instances are `scene` (WormScene), `sound` (Sonido), `juego` (Juego) 
 - **`js/intro.js` (`Intro`)**:
   - `log(html)` adds a boot console line, called by `init()` as each stage really finishes;
   - `preparado()` shows the title, with the scene in cinematic orbit;
-  - `empezar()` (PRESS START) unlocks audio;
-  - `siguiente()` walks the `ESCENAS` table (each entry can have `auto` ms to advance by itself; not with reduced motion). Scenes `_escena0..2` drive the real scene: fly to AVM and fire, a 10-qubit superposition from the real `circuito_json` probabilities, then collapse to a neuron sampled from them;
-  - `terminar()` (Esc / Skip / last beat) unlocks the HUD (`_bloquear(false)`), plays the HUD slide-in (`.app.entrando`) and calls `alTerminar`;
+  - the constructor and `preparado()` call `sound.musicaTemprana({ piano: true })`: the ambience and the intro piano are scheduled at boot, so they play at once if the browser already allows audio, and otherwise from the first gesture;
+  - the music starts in an intense intro mode (`intenso`: louder, filter open, piano opening arpeggio) and `preparado()` plays `tituloGolpe()` (boom + bright chord) when the title appears, if audio already runs;
+  - `empezar()` (PRESS START) unlocks audio if it was still suspended;
+  - `siguiente()` walks the `ESCENAS` table (each entry has a title, its text, the scene method in `accion`, and can have `auto` ms to advance by itself; not with reduced motion). The beat number and the progress pips come from the table. Two context beats (*Optogenetics*, *Nobel Prize 2026*) keep the worm in a slow orbit (`_orbita`, which also prefetches the AVM circuit); then `_luz`, `_superposicion` and `_colapso` drive the real scene: fly to AVM and fire, a 10-qubit superposition from the real `circuito_json` probabilities, then collapse to a neuron sampled from them;
+  - `terminar()` (Esc / Skip / last beat) fades the piano out (`pianoOff`), returns the music to its subtle underwater mix (`musicaIntroFin`), unlocks the HUD (`_bloquear(false)`), plays the HUD slide-in (`.app.entrando`) and calls `alTerminar`;
   - `repetir()` replays from the menu.
 - **`js/juego.js`**:
   - `Juego` keeps `descubiertas` (neurons that fired), `saltos`, `racha` and `logros`.
@@ -134,8 +139,9 @@ The module instances are `scene` (WormScene), `sound` (Sonido), `juego` (Juego) 
 - **`js/conducta.js`**: the neuron → behaviour table (`conductaDe(name)`) and `Motor` (forward/backward drive, decays between steps). See [behaviour.md](behaviour.md).
 - **`js/sonido.js` (`Sonido`)**:
   - everything is synthesised, with no audio files: laser chirp, superposition tones that glide into the measured neuron's pentatonic note (`notaNeurona`), bell, thud, per-behaviour cues, UI sounds, charge riser, achievement chime;
-  - a generative underwater ambience (`musicaOn` / `musicaDuck` / `setMusicaVol`).
-  - The context is created on the first user gesture and suspended while the tab is hidden or the sound is off.
+  - a generative underwater ambience (`musicaOn` / `musicaDuck` / `setMusicaVol`), plus a soft piano for the intro (`pianoOn` / `pianoOff`) that plays slow phrases from the current chord;
+  - the chords are scheduled on the audio clock (`musica.proximo`), so music scheduled while the context is still suspended never piles up.
+  - The context is created at boot (`musicaTemprana`) and starts running on the first user gesture if the browser kept it suspended; it is suspended while the tab is hidden or the sound is off.
 - **`js/python.js` (`py`)**: one call at a time, with two queues. Quick calls (steps, circuits, startup) always go before pending slow ones (`figuras_json`, `precargar_figuras`). A call can carry `vigente()`, and it is skipped (rejected with `error.cancelado`) if that returns false when its turn comes.
 - **`js/graficos.js`**: `groupedBars` (accessible SVG bars), `dataTable` (the table behind each chart), `esc` (HTML escaping), `SERIES_COLORS` (cyan theory, orange measured).
 - **`js/util.js`**: `REDUCED`, `COARSE`, `EASE`, `sleep`, `T_SUPERPOSICION` / `T_COLAPSO` (collapse timings shared by the scene, the sound and the sweep), `escribiendo()`.

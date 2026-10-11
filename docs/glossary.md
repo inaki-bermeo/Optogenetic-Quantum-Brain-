@@ -41,6 +41,7 @@ The code (comments, identifiers, JSON keys from Python) is in Spanish, and every
 | `nado`, `swim` | `escena.js` | The crawling wave (a curvature wave along the body) |
 | `curva`, `kappa`, `uCurva` | `escena.js` | Curvature kinematics: κ(s) along the body, the integrated midline table and its texture |
 | `actuar`, `conducta`, `programa` | `escena.js`, `js/conducta.js` | Act out a behaviour; the behaviour table entry; its motion program (`reversa`, `avance`, `omega`, …). See [behaviour.md](behaviour.md) |
+| `bacterias`, `comida`, `acercarComida`, `comer`, `olfato`, `giro`, `flujo` | `escena.js`, `conducta.js` | The neon bacteria; the food bacterium; bring it closer by a push; the swallow event; the chemotaxis behaviour (AWA, AWC, ASE); the head turn towards the food; the background flow that stands for the worm's own movement |
 | `Motor`, `empuje`, `setDrive` | `conducta.js`, `escena.js` | Forward/backward drive that the command neurons accumulate during a cascade |
 | `colapso`, `collapse` | `escena.js` | The superposition → measurement animation of one step |
 | `barrido` | `main.js` | The one-shot scanline sweep that plays with each collapse |
@@ -49,7 +50,7 @@ The code (comments, identifiers, JSON keys from Python) is in Spanish, and every
 | `calidad` (`alta`/`media`/`baja`) | `escena.js` `QUALITY`, `data-calidad` | Graphics quality: High / Medium / Low |
 | `Carga`, `cargando` | `js/juego.js` | Hold-to-charge controller for the laser dose θ |
 | `Juego`, `logro(s)`, `racha`, `descubiertas` | `js/juego.js` | Game layer: achievements, streak, neurons discovered |
-| `Intro`, `escena0..2`, `preparado`, `terminar` | `js/intro.js` | The phased intro: boot → title → three beats → HUD |
+| `Intro`, `ESCENAS`, `accion` (`_orbita`, `_luz`, `_superposicion`, `_colapso`), `preparado`, `terminar` | `js/intro.js` | The phased intro: boot → title → five beats (optogenetics, Nobel 2026, light, superposition, collapse) → HUD |
 | `Sonido`, `medicion`, `disparo`, `musica` | `js/sonido.js` | Web Audio engine: the measurement sound, the fired neuron's bell, the ambient music |
 | `enCola`, `vigente` | `js/python.js` | The Pyodide call queue; the "is this call still wanted?" check for slow (matplotlib) calls |
 | `respirar` | `js/python.js` | Yield one frame before a long Python call, so the UI can paint |

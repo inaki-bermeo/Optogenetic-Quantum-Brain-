@@ -56,6 +56,16 @@ const Y_UP = new THREE.Vector3(0, 1, 0);
 const LASER_DESDE = new THREE.Vector3(-0.6, 4.5, 1.2); // de dónde baja el haz, relativo a la neurona
 const PARTICULAS_POR_NEURONA = 17; // en el colapso: de 3 (improbable) a 17 (la más probable)
 const RASTRO_MAX = 128; // centros que dibuja el rastro de la cascada
+// Sinapsis y rastro van por dentro del cuerpo: polilíneas a lo largo del eje que el shader dobla con el gusano
+const PASO_RUTA = 0.4; // largo de cada tramo, en unidades de escena (la tabla de curvatura muestrea ~0.3)
+const RUTA_MAX = 64; // tramos máximos por conexión (cabeza → cola)
+const RADIO_RUTA = 0.8; // nunca más lejos del eje que esta fracción del radio del cuerpo
+// Las conexiones largas viajan por un cordón nervioso pegado a la pared (ventral o dorsal, como en el gusano real),
+// no por el eje, que es donde están la faringe, el intestino y la gónada.
+const CORDON_R = 0.75; // borde exterior del cordón, en fracción del radio
+const CORDON_GROSOR = 0.25; // el cordón ocupa de (CORDON_R − GROSOR) a CORDON_R del radio: una banda, no una línea
+const CORDON_ANCHO = 0.35; // cuánto conserva del desvío lateral (z)
+const CORDON_LARGO = 2; // las conexiones más cortas que esto (unidades de escena) se desvían menos hacia el cordón
 
 const S_AP = 0.02; // µm → unidades de escena (eje anteroposterior)
 const S_TR = 0.028; // ejes transversales (×1.4 respecto del real, para leer mejor el volumen)
@@ -114,8 +124,35 @@ const K_FLEX = 6; // flexión local: flex = 0.8 → ≈ 0.75 rad de giro total e
 const K_CABEZA = 14; // oscilación de la cabeza (κ·L en la punta por unidad de "cabeza")
 // Valores de reposo de la conducta: dir/freq de la onda, amplitud relativa (× KAPPA_NADO), cabeza, flexión
 // local, relajación local, giro omega (curvatura total en rad, ventral < 0), bombeo de la faringe y brillo.
-const MOTION_REPOSO = { dir: 1, freq: 1, amp: 1, cabeza: 0, flex: 0, relaja: 0, bend: 0, bombeo: 0, brillo: 1 };
-const MOTION_TAU = { dir: 0.35, freq: 0.3, amp: 0.25, cabeza: 0.25, flex: 0.25, relaja: 0.3, bend: 0.45, bombeo: 0.15, brillo: 0.4 };
+const MOTION_REPOSO = { dir: 1, freq: 1, amp: 1, cabeza: 0, flex: 0, relaja: 0, bend: 0, bombeo: 0, brillo: 1, giro: 0 };
+const MOTION_TAU = { dir: 0.35, freq: 0.3, amp: 0.25, cabeza: 0.25, flex: 0.25, relaja: 0.3, bend: 0.45, bombeo: 0.15, brillo: 0.4, giro: 0.35 };
+const K_GIRO = 9; // la cabeza se orienta hacia la comida (κ·L en la punta por unidad de "giro")
+// Postura con memoria: cada flexión de una neurona motora deja parte de su curvatura en el cuerpo; las de la
+// cascada se suman (o se cancelan, dorsal contra ventral) y la postura se deshace sola con el tiempo.
+const POSTURA_K = 0.75; // fracción de la flexión que queda en la postura (el resto es el gesto pasajero)
+const POSTURA_TAU = 25; // s: constante de tiempo con que se deshace (más larga que una cascada de 12 pasos)
+const POSTURA_SUBE = 0.3; // s: cada flexión entra a la postura de a poco, no de golpe
+const POSTURA_MAX = 12; // tope de |κ·L| de la postura en cualquier punto del cuerpo
+const POSTURA_N = 16; // flexiones recordadas como máximo
+const POSTURA_MIN = 0.15; // por debajo de este |κ·L| una flexión se olvida
+
+// Bacterias: el alimento del gusano (E. coli en las placas del laboratorio). Se dibujan como bastones de neón
+// verde, como las E. coli marcadas con GFP bajo el microscopio, y algunas magenta (mCherry); no a escala
+// (una E. coli mide ~2 µm: en la escena sería invisible). Una de ellas es la comida con la que el gusano
+// interactúa; el resto decora y deriva. El gusano está anclado: cuando avanza, son las bacterias las que
+// pasan hacia la cola (el fondo "fluye"), y la comida se acerca a la boca.
+const N_BACTERIAS = 240;
+const COMIDA_DIST = [2.6, 3.6]; // a cuánto aparece la comida delante de la boca (unidades de escena)
+const COMIDA_EMPUJE = 1.4; // cuánto se acerca por unidad de empuje de una neurona (js/conducta.js)
+const COMIDA_NADO = 0.08; // cuánto se acerca por segundo mientras el gusano repta hacia adelante
+const BACT_GLSL_FRAG = /* glsl */`
+  uniform float uK;
+  varying vec3 vColor; varying float vBrillo; varying vec3 vN; varying vec3 vV;
+  void main(){
+    float fres = pow(1.0 - abs(dot(normalize(vN), normalize(vV))), 1.6);
+    vec3 c = vColor * (0.35 + 1.4 * fres) * vBrillo;
+    gl_FragColor = vec4(c * uK, 1.0);
+  }`;
 
 // maxPx: tope de píxeles internos del lienzo (el lienzo ocupa toda la pantalla; en monitores grandes
 // se baja la resolución interna en vez de dibujar millones de píxeles con bloom).
@@ -184,7 +221,8 @@ export class WormScene {
     this._last = performance.now();
     this.pointer = null;
     this.hovered = -1;
-    this.callbacks = { pick: () => {}, hover: () => {}, quality: () => {}, key: () => {} };
+    this.callbacks = { pick: () => {}, hover: () => {}, quality: () => {}, key: () => {}, comer: () => {} };
+    this.comida = null; // la bacteria con la que interactúa el gusano (ver _initBacterias)
     this.edgeVisible = true;
     this.laser = null;
     this.highlight = new Set();
@@ -207,6 +245,7 @@ export class WormScene {
     };
     this._fase = 0; // fase de la onda del reptar
     this._flexS = 0.5; this._flexW = 0.09; this._relajaS = 0.5; // dónde actúan la flexión y la relajación
+    this._postura = []; // flexiones recordadas: { s, k (κ·L), a (0→1 mientras entra) }
     this.swim = { enabled: !REDUCED, target: REDUCED ? 0 : 1, level: 0, rampa: 0.9 };
     // conducta en curso (ver actuar): cada valor se acerca suavemente a su objetivo
     this.motion = { ...MOTION_REPOSO };
@@ -303,22 +342,15 @@ export class WormScene {
     this.edgeB = new Int32Array(m);
     this.edgeW = new Float32Array(m);
     const wmax = Math.max(...edges.map((e) => e[2]), 1e-9);
-    const ep = new Float32Array(m * 6);
-    edges.forEach(([i, j, w], k) => {
-      this.edgeA[k] = i; this.edgeB[k] = j; this.edgeW[k] = w / wmax;
-      const a = this.positions[i], b = this.positions[j];
-      ep.set([a.x, a.y, a.z, b.x, b.y, b.z], k * 6);
-    });
+    edges.forEach(([i, j, w], k) => { this.edgeA[k] = i; this.edgeB[k] = j; this.edgeW[k] = w / wmax; });
     // índices para las actualizaciones parciales (sólo la ventana medida cambia durante el colapso)
     this._aristasDe = Array.from({ length: n }, () => []);
     for (let k = 0; k < m; k++) { this._aristasDe[this.edgeA[k]].push(k); this._aristasDe[this.edgeB[k]].push(k); }
-    const eg = new THREE.BufferGeometry();
-    eg.setAttribute("position", new THREE.BufferAttribute(ep, 3));
-    eg.setAttribute("color", new THREE.BufferAttribute(new Float32Array(m * 6), 3));
-    this.edgeLines = new THREE.LineSegments(eg, this._sw(new THREE.LineBasicMaterial({
+    this.edgeLines = new THREE.LineSegments(new THREE.BufferGeometry(), this._sw(new THREE.LineBasicMaterial({
       vertexColors: true, transparent: true, opacity: 0.4, blending: THREE.AdditiveBlending,
       depthWrite: false, toneMapped: false,
     })));
+    this._construirSinapsis(); // rectas hasta que carga el cuerpo; luego se rehacen por dentro (_buildAnatomy)
     this.scene.add(this.edgeLines);
 
     this.ringGroup = new THREE.Group();
@@ -332,6 +364,59 @@ export class WormScene {
   dataToScene(x, y, z) {
     const c = this.center;
     return new THREE.Vector3((y - c[1]) * S_AP, (z - c[2]) * S_TR, (x - c[0]) * S_TR);
+  }
+
+  /**
+   * Camino por dentro del cuerpo entre dos puntos de la escena (en reposo): avanza a lo largo del eje, en el
+   * tramo medio va por el cordón nervioso (pegado a la pared ventral o dorsal) y nunca sale del cuerpo.
+   * Agrega x, y, z de cada punto a `out` (sin el primero si `sinInicio`). Sin cuerpo cargado: la recta.
+   */
+  _ruta(a, b, out, sinInicio = false) {
+    const linea = this._linea;
+    const n = linea ? Math.min(RUTA_MAX, Math.max(1, Math.ceil(Math.abs(b.x - a.x) / PASO_RUTA))) : 1;
+    if (!sinInicio) out.push(a.x, a.y, a.z);
+    if (n > 1) {
+      const ma = linea(a.x), mb = linea(b.x);
+      const ay = a.y - ma[0], az = a.z - ma[1], by = b.y - mb[0], bz = b.z - mb[1];
+      // cordón ventral (−Y), como los axones largos del gusano real; dorsal sólo si ambas neuronas están arriba
+      const lado = ay > 0.35 * ma[2] && by > 0.35 * mb[2] ? 1 : -1;
+      const hash = Math.abs(Math.sin(a.x * 12.9898 + b.x * 78.233 + a.z * 37.719) * 43758.5453) % 1;
+      const prof = CORDON_R - CORDON_GROSOR * hash; // cada conexión, a su propia profundidad dentro del cordón
+      const largo = Math.min(1, Math.abs(b.x - a.x) / CORDON_LARGO);
+      for (let i = 1; i < n; i++) {
+        const u = i / n, x = a.x + (b.x - a.x) * u, m = linea(x);
+        const w = largo * Math.min(1, 3 * Math.sin(Math.PI * u)); // llega rápido al cordón y sale al final
+        const iy = ay + (by - ay) * u, iz = az + (bz - az) * u;
+        let oy = iy + (lado * prof * m[2] - iy) * w, oz = iz + (iz * CORDON_ANCHO - iz) * w;
+        const r = Math.hypot(oy, oz), rmax = RADIO_RUTA * m[2];
+        if (r > rmax) { oy *= rmax / r; oz *= rmax / r; }
+        out.push(x, m[0] + oy, m[1] + oz);
+      }
+    }
+    out.push(b.x, b.y, b.z);
+    return out;
+  }
+
+  /** Geometría de las sinapsis: cada una es una polilínea (edgeOff[k] … edgeOff[k+1] son sus vértices). */
+  _construirSinapsis() {
+    const m = this.edgeA.length, pos = [], ruta = [];
+    this.edgeOff = new Uint32Array(m + 1);
+    this.edgeAt = new Float32Array(m);
+    for (let k = 0; k < m; k++) {
+      this.edgeOff[k] = pos.length / 3;
+      ruta.length = 0;
+      this._ruta(this.positions[this.edgeA[k]], this.positions[this.edgeB[k]], ruta);
+      for (let i = 0; i + 5 < ruta.length; i += 3) pos.push(...ruta.slice(i, i + 6)); // LineSegments: tramo = 2 vértices
+      // las largas comparten el eje con muchas otras y el brillo aditivo se saturaría
+      this.edgeAt[k] = Math.min(1, Math.sqrt(3 / (ruta.length / 3 - 1)));
+    }
+    this.edgeOff[m] = pos.length / 3;
+    const eg = new THREE.BufferGeometry();
+    eg.setAttribute("position", new THREE.BufferAttribute(new Float32Array(pos), 3));
+    eg.setAttribute("color", new THREE.BufferAttribute(new Float32Array(pos.length), 3));
+    this.edgeLines.geometry.dispose();
+    this.edgeLines.geometry = eg;
+    if (this.activity !== undefined) this._updateEdges(this.activity);
   }
 
   // ------------------------------------------------------------- cuerpo 3D
@@ -444,6 +529,7 @@ export class WormScene {
     const linea = this._centerline(cuerpo, 64);
     this._linea = linea; // también ubica la vulva (puesta de huevos)
     this._initCurva(linea, bb.min.x, bb.max.x); // reposo de la cinemática: la misma línea media que el cuerpo
+    if (linea && this.edgeLines) this._construirSinapsis();
     // pared interna (caras traseras) y cutícula (caras delanteras)
     group.add(new THREE.Mesh(cuerpo, this._bodyMaterial({ color: "#1d5fe0", rim: "#4fc3ff", strength: 0.4, fill: 0.14,
       side: THREE.BackSide })));
@@ -477,6 +563,7 @@ export class WormScene {
       group.add(new THREE.Mesh(this._tube(centers, radii, 20), this._bodyMaterial({ color: "#3fd1b0", rim: "#9cf5dc",
         strength: 0.3, fill: 0.2, grain: 0.5 })));
     }
+    this._initBacterias();
   }
 
   /** Línea media del cuerpo: para cada x, centro (y, z) y radio medio de la sección. */
@@ -674,12 +761,15 @@ export class WormScene {
     // el nado libre se detiene en reposo y en calidad "baja"; una conducta en curso siempre se anima
     const libre = !this._reposo && QUALITY[this.quality].nadoLibre !== false;
     const objetivo = this._actuar || libre ? S.target : 0;
-    const quieto = !this._actuar && !moving && objetivo === 0 && S.level === 0 && this._enReposo();
+    if (this._postura.length) this._decaerPostura(dt);
+    const quieto = !this._actuar && !moving && objetivo === 0 && S.level === 0 && this._enReposo() && !this._postura.length;
     if (quieto) return false;
     S.level += Math.sign(objetivo - S.level) * Math.min(Math.abs(objetivo - S.level), dt / S.rampa);
     const e = S.level * S.level * (3 - 2 * S.level);
     U.uSwimT.value += dt;
     this._fase += M.dir * M.freq * SWIM_W * dt * e;
+    // reptar mueve al gusano: hacia adelante la comida se acerca, en reversa se aleja (y el fondo fluye)
+    if (this.comida?.estado === "nadando") this.comida.objetivo -= COMIDA_NADO * M.dir * M.freq * dt * e;
     if (this._driveT > 0 && S.level > 0) {
       this._driveT -= dt;
       if (this._driveT <= 0) Object.assign(T, { dir: 1, freq: 1 }); // vuelve al avance, lo normal del gusano
@@ -692,12 +782,15 @@ export class WormScene {
     const U = this.swimU, M = this.motion;
     const aw = KAPPA_NADO * e * M.amp, t = U.uSwimT.value, fase = this._fase;
     const fs = this._flexS, fw = this._flexW, rs = this._relajaS;
-    if (aw === 0 && M.cabeza === 0 && M.flex === 0 && M.bend === 0) this._integrarCurva(null);
+    const postura = this._postura.length > 0;
+    if (aw === 0 && M.cabeza === 0 && M.flex === 0 && M.bend === 0 && M.giro === 0 && !postura) this._integrarCurva(null);
     else this._integrarCurva((s) => {
       let k = aw * Math.sin((2 * Math.PI * s) / LAMBDA - fase);
+      if (postura) k += this._kPostura(s);
       if (M.relaja) { const g = (s - rs) / 0.12; k *= 1 - M.relaja * Math.exp(-g * g); }
       if (M.cabeza) { const h = Math.max(0, 1 - s / 0.22); k += M.cabeza * K_CABEZA * h * h * Math.sin(t * 5); }
       if (M.flex) { const g = (s - fs) / fw; k += M.flex * K_FLEX * Math.exp(-g * g); }
+      if (M.giro) { const h = Math.max(0, 1 - s / 0.3); k += M.giro * K_GIRO * h * h; } // la cabeza hacia la comida
       return k + M.bend; // el giro omega: curvatura uniforme (total M.bend rad a lo largo del cuerpo)
     });
     U.uBrillo.value = M.brillo;
@@ -705,9 +798,35 @@ export class WormScene {
     this._pumpU.value = 0.035 * M.bombeo * (0.5 + 0.5 * Math.sin(2 * Math.PI * 4 * U.uSwimT.value));
   }
 
+  // ------------------------------------------------------- postura con memoria
+  _recordarFlexion(s, k) {
+    this._postura.push({ s, k, a: 0 });
+    if (this._postura.length > POSTURA_N) this._postura.shift();
+    this.requestRender();
+  }
+
+  /** Una neurona GABA (DD, VD) relaja los músculos de su tramo: la postura acumulada ahí se deshace. */
+  _relajarPostura(s) {
+    for (const f of this._postura) { const g = (f.s - s) / 0.12; f.k *= 1 - Math.exp(-g * g); }
+  }
+
+  /** Curvatura de la postura en s: la suma de las flexiones recordadas, con tope. */
+  _kPostura(s) {
+    let k = 0;
+    for (const f of this._postura) { const g = (s - f.s) / 0.09; k += f.k * f.a * Math.exp(-g * g); }
+    return Math.max(-POSTURA_MAX, Math.min(POSTURA_MAX, k));
+  }
+
+  _decaerPostura(dt) {
+    const d = Math.exp(-dt / POSTURA_TAU);
+    for (const f of this._postura) { f.k *= d; f.a = Math.min(1, f.a + dt / POSTURA_SUBE); }
+    this._postura = this._postura.filter((f) => Math.abs(f.k) > POSTURA_MIN);
+  }
+
   _enReposo() {
     const M = this.motion;
-    return M.amp === 1 && M.cabeza === 0 && M.flex === 0 && M.relaja === 0 && M.bend === 0 && M.bombeo === 0 && M.brillo === 1;
+    return M.amp === 1 && M.cabeza === 0 && M.flex === 0 && M.relaja === 0 && M.bend === 0 && M.bombeo === 0 && M.brillo === 1 &&
+      M.giro === 0;
   }
 
   // -------------------------------------------------------------- conducta
@@ -735,13 +854,20 @@ export class WormScene {
       case "escape": Object.assign(T, { dir: -1, freq: 1.8, amp: 3 }); dur *= 1.6; break;
       case "omega": Object.assign(T, omega, { bend: Math.sign(ev.lado || -1) * 1.6 * Math.PI }); dur *= 1.25; break;
       case "cabeza": T.cabeza = 0.8; break;
-      case "flexion": T.flex = 0.8 * (ev.lado || 1); this._flexS = s; this._flexW = 0.09; break;
-      case "relajar": Object.assign(T, { amp: 2, relaja: 1 }); this._relajaS = s; break;
+      case "flexion": {
+        const flex = 0.8 * (ev.lado || 1); // el gesto total no cambia: parte pasa y parte queda en la postura
+        T.flex = (1 - POSTURA_K) * flex; this._flexS = s; this._flexW = 0.09;
+        this._recordarFlexion(s, POSTURA_K * flex * K_FLEX);
+        break;
+      }
+      case "relajar": Object.assign(T, { amp: 2, relaja: 1 }); this._relajaS = s; this._relajarPostura(s); break;
       case "bombeo": T.bombeo = 1; break;
       case "puesta": T.flex = -0.25; this._flexS = this._sDeX(this.vulva().x); this._flexW = 0.05; this._ponerHuevo(); break;
       case "quietud": T.brillo = 0.55; break;
+      case "olfato": Object.assign(T, { freq: 1.2, amp: 1.4, giro: 0.9 * this._ladoComida() }); this._olor(); break;
       default: break;
     }
+    this.acercarComida(ev.entrada?.empuje ?? 0);
     this.swim.rampa = 0.4;
     this.swim.target = 1;
     this.requestRender();
@@ -825,6 +951,178 @@ export class WormScene {
     this._huevo = null;
   }
 
+
+  // -------------------------------------------------------------- bacterias
+  /** Bacterias de decoración (un InstancedMesh, animado en el shader) y la bacteria comida. */
+  _initBacterias() {
+    if (this._bact || !this.bodyBox) return;
+    const K = this._curva, bb = this.bodyBox;
+    const x0 = K.x0 - 9, x1 = K.x1 + 7; // caja donde derivan (envuelve en x: el fondo fluye sin fin)
+    const geo = new THREE.CapsuleGeometry(0.045, 0.13, 3, 8);
+    geo.rotateZ(Math.PI / 2); // bastón a lo largo de x
+    const n = N_BACTERIAS;
+    const color = new Float32Array(n * 3), fase = new Float32Array(n);
+    const verde = [new THREE.Color("#39ff7a"), new THREE.Color("#7dff5c"), new THREE.Color("#2bffb0")];
+    const magenta = new THREE.Color("#ff3df0");
+    const mesh = new THREE.InstancedMesh(geo, new THREE.ShaderMaterial({
+      transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+      uniforms: { uT: this.swimU.uSwimT, uFlujo: { value: 0 }, uCaja: { value: new THREE.Vector2(x0, x1) }, uK: { value: 0.55 } },
+      vertexShader: /* glsl */`
+        uniform float uT; uniform float uFlujo; uniform vec2 uCaja;
+        attribute vec3 aColor; attribute float aFase;
+        varying vec3 vColor; varying float vBrillo; varying vec3 vN; varying vec3 vV;
+        mat3 rotar(vec3 e){
+          float a = e.x, b = e.y, c = e.z;
+          mat3 rx = mat3(1., 0., 0., 0., cos(a), sin(a), 0., -sin(a), cos(a));
+          mat3 ry = mat3(cos(b), 0., -sin(b), 0., 1., 0., sin(b), 0., cos(b));
+          mat3 rz = mat3(cos(c), sin(c), 0., -sin(c), cos(c), 0., 0., 0., 1.);
+          return rz * ry * rx;
+        }
+        void main(){
+          // cada bacteria gira despacio sobre sí misma (tumbling) y deriva con un vaivén browniano suave
+          vec3 e = vec3(aFase * 6.2832, aFase * 13.7, aFase * 29.1) + uT * vec3(0.21, 0.33, 0.17) * (0.5 + fract(aFase * 7.3));
+          mat3 r = rotar(e);
+          vec3 centro = (modelMatrix * instanceMatrix * vec4(0., 0., 0., 1.)).xyz;
+          centro += vec3(uFlujo + 0.25 * sin(uT * 0.31 + aFase * 10.0), 0.16 * sin(uT * 0.23 + aFase * 17.0),
+                         0.16 * cos(uT * 0.19 + aFase * 13.0));
+          centro.x = uCaja.x + mod(centro.x - uCaja.x, uCaja.y - uCaja.x);
+          float esc = length(instanceMatrix[0].xyz);
+          vec4 w = vec4(centro + r * (position * esc), 1.0);
+          vec4 mv = viewMatrix * w;
+          vN = normalize(mat3(viewMatrix) * (r * normal)); vV = normalize(-mv.xyz);
+          vColor = aColor;
+          vBrillo = 0.65 + 0.35 * sin(uT * 1.1 + aFase * 40.0);
+          gl_Position = projectionMatrix * mv;
+        }`,
+      fragmentShader: BACT_GLSL_FRAG,
+    }), n);
+    const m = new THREE.Matrix4(), q = new THREE.Quaternion(), v = new THREE.Vector3(), sc = new THREE.Vector3();
+    for (let i = 0; i < n; i++) {
+      // fuera del cuerpo: se descartan los puntos que caen dentro del gusano
+      let tries = 0;
+      do {
+        v.set(x0 + Math.random() * (x1 - x0), -4 + Math.random() * 8, -6 + Math.random() * 9);
+        tries++;
+      } while (tries < 10 && v.x > bb.min.x - 0.3 && v.x < bb.max.x + 0.3 && Math.abs(v.y) < 1.2 && Math.abs(v.z) < 1.2);
+      const k = 0.7 + Math.random() * 0.7;
+      m.compose(v, q, sc.set(k, k, k));
+      mesh.setMatrixAt(i, m);
+      (Math.random() < 0.18 ? magenta : verde[i % 3]).toArray(color, i * 3);
+      fase[i] = Math.random();
+    }
+    geo.setAttribute("aColor", new THREE.InstancedBufferAttribute(color, 3));
+    geo.setAttribute("aFase", new THREE.InstancedBufferAttribute(fase, 1));
+    mesh.frustumCulled = false; // se mueven en el shader
+    this.scene.add(mesh);
+    this._bact = mesh;
+
+    // la comida: una bacteria más grande y brillante, con un halo que late (más cuando el gusano la "huele")
+    const g = new THREE.Group();
+    const cuerpo = new THREE.Mesh(new THREE.CapsuleGeometry(0.075, 0.2, 4, 12).rotateZ(Math.PI / 2), new THREE.ShaderMaterial({
+      transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+      uniforms: { uK: { value: 1 }, uColor: { value: new THREE.Color("#b6ff3d").multiplyScalar(1.6) } },
+      vertexShader: /* glsl */`
+        uniform vec3 uColor;
+        varying vec3 vColor; varying float vBrillo; varying vec3 vN; varying vec3 vV;
+        void main(){
+          vec4 mv = modelViewMatrix * vec4(position, 1.0);
+          vN = normalize(normalMatrix * normal); vV = normalize(-mv.xyz);
+          vColor = uColor; vBrillo = 1.0;
+          gl_Position = projectionMatrix * mv;
+        }`,
+      fragmentShader: BACT_GLSL_FRAG,
+    }));
+    const halo = new THREE.Mesh(new THREE.SphereGeometry(0.32, 20, 14), new THREE.MeshBasicMaterial({
+      color: new THREE.Color("#7dff5c"), transparent: true, opacity: 0.12, blending: THREE.AdditiveBlending,
+      depthWrite: false, toneMapped: false }));
+    const ola = new THREE.Mesh(new THREE.RingGeometry(0.3, 0.34, 48), new THREE.MeshBasicMaterial({
+      color: new THREE.Color("#b6ff3d"), transparent: true, opacity: 0, blending: THREE.AdditiveBlending,
+      depthWrite: false, toneMapped: false, side: THREE.DoubleSide }));
+    g.add(cuerpo, halo, ola);
+    this.scene.add(g);
+    this._comidaFx = { g, cuerpo, halo, ola };
+    // la boca: punta de la cabeza (en reposo); deform() la mueve con el cuerpo
+    const [cy, cz] = this._linea ? this._linea(K.x0 + 0.02) : [0, 0];
+    this._boca0 = new THREE.Vector3(K.x0, cy, cz);
+    this._nuevaComida(true);
+  }
+
+  /** Aparece una bacteria comida nueva delante de la boca (a la izquierda: la cabeza mira hacia −x). */
+  _nuevaComida(primera = false) {
+    const [a, b] = COMIDA_DIST;
+    const d = primera ? b : a + Math.random() * (b - a);
+    this.comida = {
+      estado: "nadando", dist: d, objetivo: d, t: 0, olor: 0, aparecer: 0,
+      y: (Math.random() < 0.5 ? -1 : 1) * (0.5 + Math.random() * 0.9), z: -0.6 + Math.random() * 1.2,
+      giro: Math.random() * Math.PI,
+    };
+    this._flujoPrev = d;
+    this.requestRender();
+  }
+
+  /** Lado de la comida respecto de la boca (+1 arriba, −1 abajo): hacia dónde gira la cabeza al olerla. */
+  _ladoComida() { return this.comida && this.comida.y < 0 ? -1 : 1; }
+
+  /** Una neurona química "olió" la comida: el halo late y una onda va de la bacteria hacia la cabeza. */
+  _olor() { if (this.comida) { this.comida.olor = 1; this.requestRender(); } }
+
+  /** Empuje de una neurona (js/conducta.js): hacia adelante la comida se acerca; hacia atrás, se aleja. */
+  acercarComida(empuje) {
+    const C = this.comida;
+    if (!C || C.estado !== "nadando" || !empuje) return;
+    C.objetivo = Math.min(COMIDA_DIST[1] + 1.5, C.objetivo - COMIDA_EMPUJE * empuje);
+    if (this.reducedMotion) C.dist = C.objetivo;
+    this.requestRender();
+  }
+
+  /** Mueve la comida (y el fondo de bacterias), la come al llegar a la boca y hace aparecer otra. */
+  _animateComida(dt) {
+    const C = this.comida, F = this._comidaFx;
+    if (!C || !F) return false;
+    let mueve = false;
+    // la distancia sigue a su objetivo (suave); el fondo fluye lo mismo que se acercó la comida
+    const dd = C.objetivo - C.dist;
+    if (Math.abs(dd) > 1e-4) {
+      C.dist += dd * Math.min(1, dt * 1.6);
+      if (Math.abs(dd) > 0.02) mueve = true; // el acercamiento lento del reptar va al ritmo del nado (30 fps)
+    }
+    this._bact.material.uniforms.uFlujo.value += this._flujoPrev - C.dist;
+    this._flujoPrev = C.dist;
+    if (C.olor > 0) { C.olor = Math.max(0, C.olor - dt / 1.6); mueve = true; }
+    if (C.aparecer < 1) { C.aparecer = Math.min(1, C.aparecer + dt / 0.8); mueve = true; }
+    C.t += dt;
+    // posición: delante de la boca; el desvío lateral se cierra al acercarse (la cabeza la alcanza)
+    const boca = this.deform(this._tmpVec2.copy(this._boca0));
+    const lat = Math.min(1, Math.max(0, C.dist) / 1.6);
+    const pos = F.g.position.set(boca.x - Math.max(0, C.dist), boca.y + C.y * lat, boca.z + C.z * lat);
+    if (C.estado === "nadando" && C.dist <= 0.12) {
+      C.estado = "comiendo";
+      C.t = 0;
+      this.callbacks.comer();
+      // la faringe bombea mientras traga (si no hay otra conducta en curso)
+      if (!this._actuar) { this.motionT.bombeo = 1; this.swim.target = 1; setTimeout(() => { if (!this._actuar) this.motionT.bombeo = 0; }, 1600); }
+    }
+    let k = C.aparecer;
+    if (C.estado === "comiendo") {
+      const u = Math.min(1, C.t / 0.7);
+      pos.lerp(boca, u);
+      k *= 1 - u;
+      mueve = true;
+      if (C.t > 1.8) this._nuevaComida();
+    }
+    const late = 0.5 + 0.5 * Math.sin(C.t * 2.4);
+    F.cuerpo.rotation.set(0, 0, C.giro + 0.25 * Math.sin(C.t * 0.6));
+    F.cuerpo.material.uniforms.uK.value = k * (0.9 + 0.3 * late + 0.8 * C.olor);
+    F.cuerpo.scale.setScalar(Math.max(0.05, k));
+    F.halo.material.opacity = k * (0.08 + 0.06 * late + 0.25 * C.olor);
+    F.halo.scale.setScalar(0.8 + 0.4 * late + 1.4 * C.olor);
+    // onda del olor: un anillo que se abre desde la bacteria (lo que "huele" la neurona química)
+    F.ola.material.opacity = 0.6 * C.olor * k;
+    F.ola.scale.setScalar(1 + 6 * (1 - C.olor));
+    F.ola.lookAt(this.camera.position);
+    return mueve;
+  }
+
   /** Aplica la onda del nado a un material estándar de three.js (neuronas, sinapsis, anillos, láser…). */
   _sw(mat) {
     mat.onBeforeCompile = (sh) => {
@@ -869,9 +1167,15 @@ export class WormScene {
     const pos = this.trail.geometry.attributes.position;
     // si la cadena es más larga que el lugar reservado se muestran los últimos RASTRO_MAX centros
     const desde = indices ? indices.length - n : 0;
-    for (let k = 0; k < n; k++) { const p = this.positions[indices[desde + k]]; pos.setXYZ(k, p.x, p.y, p.z); }
+    const ruta = [];
+    for (let k = 0; k < n; k++) {
+      const p = this.positions[indices[desde + k]];
+      if (k === 0) ruta.push(p.x, p.y, p.z);
+      else this._ruta(this.positions[indices[desde + k - 1]], p, ruta, true);
+    }
+    pos.array.set(ruta);
     pos.needsUpdate = true;
-    this.trail.geometry.setDrawRange(0, n);
+    this.trail.geometry.setDrawRange(0, ruta.length / 3);
     this.trail.geometry.computeBoundingSphere();
     this._rastroN = n;
     this.trail.visible = n >= 2;
@@ -950,9 +1254,11 @@ export class WormScene {
       const base = 0.25 + 0.75 * W[k];
       const li = lutIndex(0.45 + 0.55 * act);
       const k2 = act * base * 0.55;
-      const r = 0.025 * base + LUT[li] * k2, g = 0.04 * base + LUT[li + 1] * k2, b = 0.09 * base + LUT[li + 2] * k2;
-      const o = k * 6;
-      ec[o] = r; ec[o + 1] = g; ec[o + 2] = b; ec[o + 3] = r; ec[o + 4] = g; ec[o + 5] = b;
+      const at = this.edgeAt[k], ka = k2 * Math.sqrt(at);
+      const r = 0.025 * base * at + LUT[li] * ka, g = 0.04 * base * at + LUT[li + 1] * ka, b = 0.09 * base * at + LUT[li + 2] * ka;
+      for (let o = this.edgeOff[k] * 3, fin = this.edgeOff[k + 1] * 3; o < fin; o += 3) {
+        ec[o] = r; ec[o + 1] = g; ec[o + 2] = b;
+      }
     }
     this.edgeLines.geometry.attributes.color.needsUpdate = true;
   }
@@ -1003,7 +1309,7 @@ export class WormScene {
     this._collapseFx.halo(0); // uno basta para compilar su shader; el resto comparte el programa
     // rastro: una línea con lugar para RASTRO_MAX centros (drawRange muestra los usados)
     const tg = new THREE.BufferGeometry();
-    tg.setAttribute("position", new THREE.BufferAttribute(new Float32Array(RASTRO_MAX * 3), 3));
+    tg.setAttribute("position", new THREE.BufferAttribute(new Float32Array(((RASTRO_MAX - 1) * RUTA_MAX + 1) * 3), 3));
     this.trail = new THREE.Line(tg, this._sw(new THREE.LineBasicMaterial({ color: new THREE.Color("#ff6a2b").multiplyScalar(1.5),
       transparent: true, opacity: 0.95, toneMapped: false, depthWrite: false })));
     this.trail.visible = false;
@@ -1409,6 +1715,7 @@ export class WormScene {
     if (!orbita && this.controls.update()) continuo = true; // amortiguación tras arrastrar
     if (this._animateLaser(dt)) continuo = true;
     if (this._collapse && this._collapse.update(dt)) continuo = true;
+    if (this._animateComida(dt)) continuo = true;
     let active = continuo;
     this._sinceSwim += dt;
     if (this._sinceSwim >= SWIM_FRAME || active || this._dirty) {

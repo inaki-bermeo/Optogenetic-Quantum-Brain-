@@ -19,7 +19,7 @@ This effort is supported by Qollab & IonQ.
 
 ## Try it in one minute
 
-1. Press **Run** and choose **Built-in simulator** (free and instant). A short intro boots the lab: press **Start** and follow the three beats (Light → Superposition → Collapse), or press **Esc** to skip.
+1. Press **Run** and choose **Built-in simulator** (free and instant). A short intro boots the lab: press **Start** and follow the five beats (Optogenetics → Nobel Prize 2026 → Light → Superposition → Collapse), or press **Esc** to skip.
 2. The laser targets **AVM**, a touch-sensing neuron. **Hold** the fire button (or **Space**) to charge the laser: the charge is the dose θ, and the meter shows the chance that the neuron fires, sin²(θ/2). Release to fire. A quick tap fires at full dose.
 3. Watch each circuit: the 10 neurons of the window pulse in superposition, then the measurement collapses them onto one, which fires the next circuit. The spike hops along the worm and leaves a trail.
 4. Move **Measure every τ** and compare **τ = 8** (the spike travels) with **τ = 2** (it barely moves: the Zeno effect).
@@ -36,10 +36,14 @@ This effort is supported by Qollab & IonQ.
 
 - **Boot.** A console types each real loading stage as it completes: the Python core, the connectome, the body mesh and the backend.
 - **Title.** The live worm orbits slowly behind the title.
+- **Two beats of context**, with the worm slowly orbiting:
+  - *Optogenetics:* a light-sensitive protein from algae, channelrhodopsin, lets a flash of blue light fire chosen neurons.
+  - *Nobel Prize 2026:* the Nobel Prize in Physiology or Medicine went to Georg Nagel, Peter Hegemann and Karl Deisseroth for light-gated ion channels and optogenetics. In 2005 Nagel's team made *C. elegans*, the worm on screen, move with light.
 - **Three beats on the real data**, using the actual circuit of AVM:
   - *Light:* the camera flies in and the laser fires.
   - *Superposition:* its 10-qubit window glows with the circuit's ideal probabilities.
   - *Collapse:* one neuron is drawn from those probabilities and fires.
+- **Music from the start:** the title lands with a deep hit and the intro music comes in strong, a piano over the ambience (as soon as the browser allows sound, at the latest on *Press start*). When the HUD comes in, the piano fades out and the music sinks back into a subtle underwater ambience.
 - Then the HUD slides in from the edges. **Esc** skips the intro at any time, and it can be replayed from the settings menu.
 
 ### The lab HUD
@@ -94,7 +98,7 @@ This is an analogy built on the real wiring diagram. We do **not** claim that re
 
 ## Where the wiring comes from
 
-The neurons and synapses are the real ones, not a toy network. Every neuron name in the app is an identified cell of the worm, every line drawn is a synapse that was seen under the microscope, and every position is where that cell body sits in the animal.
+The neurons and synapses are the real ones, not a toy network. Every neuron name in the app is an identified cell of the worm, every line drawn is a synapse that was seen under the microscope, and every position is where that cell body sits in the animal. Lines run inside the body, along the ventral nerve cord like the worm's long axons, so they bend with the worm and leave the organs visible; that path is schematic, not each axon's real route.
 
 - **The map.** Cook, S. J. et al. (2019). *Whole-animal connectomes of both* Caenorhabditis elegans *sexes.* Nature 571, 63–71. https://doi.org/10.1038/s41586-019-1352-7. The authors reconstructed the whole nervous system from serial-section **electron micrographs**: thousands of ultra-thin slices of the worm, imaged one by one, with every chemical synapse and gap junction traced and counted. The data is published at https://wormwiring.org.
 - **The original map** it builds on: White, J. G. et al. (1986). *The structure of the nervous system of the nematode* C. elegans. Phil. Trans. R. Soc. B 314, 1–340. https://doi.org/10.1098/rstb.1986.0056. This was the first complete wiring diagram of any animal.
@@ -209,20 +213,23 @@ The window is the neuron that fired plus its 9 neighbours with the most synapses
 | ASH (noxious stimuli) | escape: reversal, then an omega turn | Kaplan & Horvitz 1993; Hilliard 2005 |
 | RIV, SMDV | deep ventral (omega) turn | Gray 2005 |
 | RMD, SMB, RME, SMDD | head bend | Gray 2005 |
-| A-type (DA, VA, AS) and B-type (DB, VB) motor neurons | local body bend, part of the backward or forward circuit | Haspel 2010 |
+| A-type (DA, VA, AS) and B-type (DB, VB) motor neurons | local body bend, part of the backward or forward circuit; the bends of a cascade add up into a posture that fades in about half a minute | Haspel 2010 |
 | DD, VD (GABA) | local muscle relaxation | McIntire 1993; Liewald 2008 |
 | MC, M2–M4; NSM | pharynx pumping; NSM also slows the worm down | Avery & Horvitz 1989; Raizen 1995; Sawin 2000 |
 | HSN, VC | egg laying | Desai 1988; Schafer 2005 |
 | RIS | sleep-like stop | Turek 2013, 2016 |
 | AIB, AIY, AIZ | tendencies: reverse, keep going, turn | Gray 2005; Gordus 2015; Li 2014 |
+| AWA, AWC, ASE (smell and taste) | turns towards the food and crawls closer | Bargmann & Horvitz 1991; Bargmann, Hartwieg & Horvitz 1993 |
 
 **How it plays.** A single forward/backward drive adds each neuron's push and fades between steps, so AVA and AVB cancel each other like the real circuits that inhibit each other. The body wave runs tail → head when the worm backs up, as in real reversals. Every motion is a curvature profile along the body, which is what muscles produce: the body keeps its length and its organs bend with it.
+
+**Food.** *C. elegans* eats bacteria. Neon rods drift around the worm (green like GFP-labelled *E. coli* under the microscope, not to scale), and one of them is food. The worm stays anchored, so when it moves the world moves instead: crawling or a forward neuron brings the food closer and the bacteria flow past; a backward neuron pushes it away. When the cascade measures a smell or taste neuron (AWA, AWC, ASE), the food glows and the head turns towards it. When the food reaches the mouth, the pharynx pumps and the worm swallows it (achievement *First meal*), and a new one appears ahead.
 
 **What is simplified.**
 - Real *C. elegans* neurons are classical, and most do not even spike (AWA is an exception).
 - Behaviour comes from whole circuits, so one neuron is a simplification.
 - Local motor bends are placed where the cell body sits.
-- 172 of the 302 neurons have no known direct effect on movement, so they leave the worm still, on purpose.
+- 166 of the 302 neurons have no known direct effect on movement, so they leave the worm still, on purpose.
 
 Full table and references: [docs/behaviour.md](https://github.com/inaki-bermeo/Optogenetic-Quantum-Brain-/blob/main/docs/behaviour.md).
 
@@ -302,12 +309,14 @@ It also walks through the real steps needed to take the physics to hardware: Tro
   - the two-panel interface with the gate-by-gate circuit view;
   - the microscope-style worm, live sound and music;
   - the worm acting out the behaviour of each measured neuron;
+  - the neon bacteria and the food the worm smells, chases and eats;
   - accessibility.
 - **Data:**
   - connectome from Cook et al., *Nature* 571, 63 (2019), via OpenWorm c302;
   - neuron positions from OpenWorm CElegansNeuroML;
   - touch reflex circuit from Chalfie et al. (1985);
-  - optogenetics in *C. elegans*: Nagel et al. (2005);
+  - optogenetics in *C. elegans*: Nagel, G. et al., *Light activation of channelrhodopsin-2 in excitable cells of* Caenorhabditis elegans *triggers rapid behavioral responses*, Current Biology 15, 2279–2284 (2005);
+  - the 2026 Nobel Prize in Physiology or Medicine: [nobelprize.org press release](https://www.nobelprize.org/prizes/medicine/2026/press-release/);
   - neuron → behaviour table from lesion and optogenetics studies (Chalfie 1985, Gray 2005, Haspel 2010, Leifer 2011, Stirman 2011 and others, listed in `docs/behaviour.md`).
 - **Sound:** synthesised live with the Web Audio API, adapted from the team's own DSP engine.
 - **Libraries:** Qiskit, NumPy, SciPy, matplotlib and three.js.
