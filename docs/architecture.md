@@ -33,7 +33,7 @@ frontend/
   js/intro.js       Intro: boot console fed by init(), title + PRESS START, three beats on the real AVM circuit, skip/replay
   js/juego.js       game layer: Carga (hold to charge θ), Juego (stats, achievements that each explain one physics fact)
   js/conducta.js    neuron class → behaviour table (with references) and the forward/backward Motor drive
-  js/escena.js      WormScene: three.js scene, worm body shader + swim wave, behaviour motions (actuar), neurons
+  js/escena.js      WormScene: three.js scene, organ meshes, curvature kinematics (swim + behaviour motions), neurons
                     (InstancedMesh), synapses (LineSegments), laser, collapse animation, camera flights, picking,
                     render-on-demand loop
   js/graficos.js    groupedBars + dataTable (accessible SVG bar chart with its data table), esc()
@@ -52,7 +52,7 @@ backend/
   data/                   neurons.json, connectome_cook2019.csv, gusano.glb
 tests/backend/            unit tests + referencia.py (exact 2^n reference, test-only)
 tests/e2e/smoke_test.py   Playwright smoke test against tools/dev_server.py
-tools/                    build_qollab.py, dev_server.py + qollab_shim/, optimize_glb.py, zeno_analysis.py
+tools/                    blender/modelo_gusano.py (generates gusano.glb), build_qollab.py, dev_server.py + qollab_shim/, optimize_glb.py, zeno_analysis.py
 ```
 
 The physics behind each module is in [theory.md](theory.md) (Spanish). The cascade design is in [cascade.md](cascade.md).
@@ -138,7 +138,7 @@ If the measured neuron has a known behaviour (`js/conducta.js`), the next step w
 - **One draw call each** for the 302 neurons (`InstancedMesh`) and the synapses (`LineSegments`).
   - Colours come from a precomputed lookup table.
   - Collapse frames repaint only the 10 window neurons and their synapses (`_pintar`).
-  - The swim and the behaviour motions run in the vertex shader (`wormDeform`); `WormScene.deform()` repeats the same math in JS for picking, labels and camera flights.
+  - The swim and the behaviour motions run in the vertex shader (`wormDeform`), reading one 64×2 curvature texture that JS updates only on frames where something moves; `WormScene.deform()` reads the same table for picking, labels and camera flights.
   - Picking projects 302 points; there is no raycasting.
 - **The cascade doesn't wait for decoration.** A behaviour releases the next step as soon as the worm starts returning to rest.
 - **Python.**

@@ -25,6 +25,8 @@ folder uploaded to Qollab. Code identifiers and comments are in Spanish; everyth
 - [docs/behaviour.md](docs/behaviour.md): neuron → behaviour table (with references) and the shader motions.
 - [docs/theory.md](docs/theory.md) (Spanish) and [docs/theory_tex/](docs/theory_tex/): the full physics.
 - [docs/3d-model.md](docs/3d-model.md) (Spanish): coordinate frames of the body mesh.
+- [docs/worm-model.md](docs/worm-model.md): the anatomical Blender worm (organs, `tools/blender/modelo_gusano.py`) and
+  the curvature kinematics that bends body and organs together.
 - [PROJECT_CARD.md](PROJECT_CARD.md) / [README.md](README.md): the public project page (keep both in sync).
 - [RUNNING.md](RUNNING.md): the page only runs inside Qollab (or the local harness).
 
