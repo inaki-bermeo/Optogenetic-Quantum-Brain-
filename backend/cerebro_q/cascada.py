@@ -170,6 +170,8 @@ def ejecutar_paso(backend, centro: int, theta: float, tau: float, gamma: float, 
         "motivo_fin": motivo_fin,
         "spike": nombres[spike] if spike is not None else None,
         "spike_indice": int(w[spike]) if spike is not None else None,
+        # ¿el spike cayó en una vecina directa del centro? (False = a 2 sinapsis: ventana completada)
+        "spike_vecina": bool(fisica.acoplamientos()[0][w[0], w[spike]] > 0) if spike not in (None, 0) else None,
         "shots": int(total),
         "ops_escritas": circuitos.contar_ops(qc),
         "ops_transpilado": circuitos.contar_ops(enviar),
