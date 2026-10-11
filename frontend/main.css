@@ -198,6 +198,12 @@
   background: repeating-linear-gradient(90deg, var(--spike) 0 8px, transparent 8px 10px);
   box-shadow: 0 0 12px rgba(255,106,43,.45); transition: transform .12s linear; }
 .hud-deck.charging .dose-meter i { transition: none; }
+/* el medidor también es un deslizador: clic o arrastre con el mouse (o flechas con el teclado) fijan la dosis */
+.dose-meter { cursor: ew-resize; touch-action: none; }
+.dose-meter:hover { border-color: var(--spike); }
+.dose-meter:focus-visible { outline: 2px solid var(--focus); outline-offset: 3px; }
+.dose-meter::after { content: ""; position: absolute; top: -4px; bottom: -4px; width: 2px; left: calc(var(--dose, 1) * 100% - 1px);
+  background: #fff; box-shadow: 0 0 6px rgba(255,255,255,.8); pointer-events: none; }
 
 /* botón de disparo: biselado, se llena al cargar */
 .fire-btn { all: unset; touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;

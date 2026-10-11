@@ -137,6 +137,19 @@ def main():
         pag.wait_for_timeout(1200)
         pag.screenshot(path=str(out / "1_hud.png"), **SHOT)
 
+        # la dosis se elige a mano: arrastre con el mouse sobre el medidor y teclado (Home / End)
+        caja = pag.locator("#dose-meter").bounding_box()
+        y = caja["y"] + caja["height"] / 2
+        pag.mouse.move(caja["x"] + caja["width"] * 0.8, y)
+        pag.mouse.down()
+        pag.mouse.move(caja["x"] + caja["width"] * 0.5, y, steps=4)
+        pag.mouse.up()
+        assert pag.inner_text("#theta-val") == "0.50π" and pag.inner_text("#pfire") == "50%", pag.inner_text("#theta-val")
+        pag.focus("#dose-meter")
+        pag.keyboard.press("End")
+        assert pag.inner_text("#theta-val") == "π" and pag.get_attribute("#dose-meter", "aria-valuenow") == "100"
+        print("dosis: arrastre con el mouse y teclado ✓")
+
         # sonido, ayuda y menú (Esc)
         pag.click("#sound-btn")
         assert pag.get_attribute("#sound-btn", "aria-pressed") == "false"

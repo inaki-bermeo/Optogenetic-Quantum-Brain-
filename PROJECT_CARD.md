@@ -6,7 +6,7 @@
 [![Powered by Qiskit](https://img.shields.io/badge/Powered_by-Qiskit-6133BD.svg)](https://qiskit.org/)
 [![Hardware: IonQ](https://img.shields.io/badge/Hardware-IonQ-000000.svg)](https://ionq.com/)
 
-**Supported by Qollab & IonQ**
+**This effort is supported by Qollab & IonQ.**
 
 **Repository:** [https://github.com/inaki-bermeo/Optogenetic-Quantum-Brain-](https://github.com/inaki-bermeo/Optogenetic-Quantum-Brain-)  
 **Full theory (Spanish):** [docs/theory.md](https://github.com/inaki-bermeo/Optogenetic-Quantum-Brain-/blob/main/docs/theory.md)
@@ -57,9 +57,9 @@ The simulation functions as both an educational platform and a scientific sandbo
 The physical mapping from biology to quantum mechanics relies on strict mathematical equivalencies, processed natively through Qiskit and rigorously modeled down to the hardware level.
 
 **1. Symmetrization & Spectral Normalization ($J$)**
-Chemical synapses are directional, but unitary quantum evolution requires a Hermitian Hamiltonian. We symmetrize the real connectome data (Cook et al., 2019) applying a logarithmic dampening to heavy-tailed synapse counts:
+Chemical synapses are directional, but unitary quantum evolution requires a Hermitian Hamiltonian. We symmetrize the real connectome data (Cook et al., 2019) with binary weights: two neurons are connected if they share at least one chemical synapse (in either direction) or gap junction, and every connection counts the same:
 
-$$W_{ij} = \log\left(1 + c_{i\rightarrow j} + c_{j\rightarrow i} + \max(g_{ij}, g_{ji})\right)$$
+$$W_{ij} = W_{ji} = \begin{cases} 1 & \text{if } c_{i\rightarrow j} + c_{j\rightarrow i} + g_{ij} > 0 \\ 0 & \text{otherwise} \end{cases}$$
 
 To define time in natural $1/\gamma$ units, the matrix is normalized by its largest eigenvalue (spectral radius $\rho(W)$), ensuring $\Vert{}J\Vert{}_2 = 1$:
 
@@ -88,8 +88,8 @@ $$\text{hop}(\alpha) = e^{-i\alpha(X_i X_j + Y_i Y_j)/2} = R_{XX}(\alpha) \cdot 
 
 The Trotter operator error scales strictly as $\mathcal{O}(t^3 / r^2)$ driven by the commutators of adjacent synapses $\sum \Vert{}[h_a, h_b]\Vert{}$. During execution on IonQ backends, these gates natively compile to trapped-ion $ZZ(\theta)$ interactions, requiring zero SWAP overhead due to the hardware's all-to-all connectivity.
 
-**5. Stratified Noise Modeling & Symmetry Post-Selection**
-To rapidly simulate noisy QPU dynamics, we implement a **Stratified Monte Carlo** estimator that separates the error-free trajectory $P_0$ from the noise combinations. 
+**5. Hardware Noise & Symmetry Post-Selection**
+Noise comes from the backend itself: the IonQ Forte 1 remote simulator applies its hardware noise model, and the quantum computer adds real trapped-ion noise. 
 To mitigate physical errors, we apply **symmetry post-selection**: since the laser generates a maximum of 1 excitation, any bitstring measured with Hamming weight $\ge 2$ (multiple neurons firing) is an unphysical noise artifact. These shots are dynamically projected out $\left(\Pi_{\le 1} \rho \Pi_{\le 1}\right)$, drastically lowering the hardware's Total Variation Distance (TVD) from the ideal distribution.
 
 ---
@@ -137,4 +137,4 @@ While a single-excitation quantum walk can be simulated efficiently on classical
 
 **Project Details**
 * **Themes:** Quantum Unlocked · Quantum Playground.
-* **License:** MIT.
+* **License:** MIT.

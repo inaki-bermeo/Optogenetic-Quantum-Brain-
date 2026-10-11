@@ -177,7 +177,7 @@ function setDose(theta, { charging = false } = {}) {
   if (pc !== D.pc) {
     $("theta-val").textContent = fmtTheta(theta);
     $("pfire").textContent = `${pc}%`;
-    $("dose-meter").setAttribute("aria-valuenow", (pc / 100).toFixed(2));
+    $("dose-meter").setAttribute("aria-valuenow", String(Math.round((100 * theta) / Math.PI)));
     $("dose-meter").setAttribute("aria-valuetext", `θ = ${fmtTheta(theta)}, fire chance ${pc}%`);
   }
   Object.assign(D, { lleno, charging, pc });
@@ -302,6 +302,7 @@ async function fire(thetaCarga = null) {
   closeHelp();
   Object.assign(cascade, { running: true, stop: false, centers: [state.source], steps: [], conductas: [] });
   scene.ocupada = true; // sin reposo mientras corre
+  scene.inicioCiclo(); // los acercamientos y alejamientos de este disparo se suman
   circ.follow = true;
   $("fire-btn").disabled = true;
   $("fire-label").textContent = "Running circuits…";
@@ -376,6 +377,7 @@ async function fire(thetaCarga = null) {
     cascade.running = false;
     scene.ocupada = false;
     scene.marcarActividad();
+    scene.finCiclo(); // terminado el ciclo, el gusano vuelve a su distancia original
     sound.pararFondo();
     scene.setDrive(motor.d);
     setTimeout(() => { if (!cascade.running) { scene.setSwim(true); sound.musicaDuck(false); } }, 2500);
@@ -869,8 +871,52 @@ function bindCarga() {
   });
 }
 
+/**
+ * La dosis también se elige a mano: clic o arrastre sobre el medidor (mouse o dedo), o flechas con el teclado.
+ * El valor vive en el control del menú (#theta), igual que antes: tocar el botón dispara con esa dosis.
+ */
+function bindDosis() {
+  const m = $("dose-meter"), th = $("theta");
+  const fijar = (theta, { fin = false } = {}) => {
+    theta = Math.max(0.1, Math.min(Math.PI, theta));
+    if (theta > Math.PI - 0.03) theta = Math.PI; // a fondo: π exacto (RX(π) = X, siempre dispara)
+    th.value = String(theta);
+    th.dispatchEvent(new Event("input"));
+    if (fin) th.dispatchEvent(new Event("change")); // vuelve a pedir la vista previa del circuito
+  };
+  const desdeX = (e) => {
+    const r = m.getBoundingClientRect();
+    return Math.PI * Math.min(1, Math.max(0, (e.clientX - r.left) / r.width));
+  };
+  const puede = () => !cascade.running && !ui.intro && !$("hud-deck").classList.contains("charging");
+  m.addEventListener("pointerdown", (e) => {
+    if (e.button !== 0 || !puede()) return;
+    m.setPointerCapture(e.pointerId);
+    m.focus({ preventScroll: true });
+    fijar(desdeX(e));
+  });
+  m.addEventListener("pointermove", (e) => { if (m.hasPointerCapture(e.pointerId)) fijar(desdeX(e)); });
+  m.addEventListener("pointerup", (e) => {
+    if (!m.hasPointerCapture(e.pointerId)) return;
+    m.releasePointerCapture(e.pointerId);
+    fijar(desdeX(e), { fin: true });
+    sound.ui("select");
+  });
+  m.addEventListener("keydown", (e) => {
+    if (!puede()) return;
+    const paso = { ArrowRight: 1, ArrowUp: 1, ArrowLeft: -1, ArrowDown: -1, PageUp: 5, PageDown: -5 }[e.key];
+    const t = parseFloat(th.value);
+    if (paso) fijar(t + (paso * Math.PI) / 20, { fin: true });
+    else if (e.key === "Home") fijar(0.1, { fin: true });
+    else if (e.key === "End") fijar(Math.PI, { fin: true });
+    else return;
+    e.preventDefault();
+  });
+}
+
 function bindUI() {
   bindCarga();
+  bindDosis();
   avisarActividad();
   if (COARSE) {
     $("scene-help").textContent = "Hold Fire to charge · tap a neuron to target it · drag sideways or use two fingers to orbit";
