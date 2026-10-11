@@ -24,29 +24,30 @@
 
 ---
 
-## Executive Summary & Core Concept
+## Summary & Core Concept
 
-In biological optogenetics, researchers illuminate a specific neuron with a laser to force it to fire, allowing them to observe the resulting activity as it propagates through the brain's network. This project translates that precise biological experiment into the realm of quantum computing.
+Optogenetics is a technique that makes living neurons sensitive to light by giving them light-gated proteins, so researchers can switch individual cells on or off with a pulse of light and study how the activity spreads. Inspired by the 2026 Nobel Prize in Medicine, awarded to Georg Nagel, Peter Hegemann and Karl Deisseroth, this project brings that idea into quantum computing.
 
-By mapping the 302 neurons of the *C. elegans* connectome directly to qubits, we allow users to interactively visualize and simulate quantum interference, state superposition, and the quantum Zeno effect propagating through a biological neural network in real-time.
+We take the real connectome of *C. elegans* consisting on 302 neurons and fire a "quantum laser" at any neuron. The laser is an `RX(θ)` gate, and the excitation spreads to the neuron's neighbours as a quantum walk. Each step of the spike is decided by a 10-qubit quantum circuit written in Qiskit: the neuron that fired and its 9 most connected neighbours, one qubit each. A measurement then collapses the circuit onto a single neuron, which fires the next step. The result is a model of how a spike could travel through a real neural network, with every step run on a quantum backend.
 
-| Biological Optogenetics | Quantum Hardware Translation |
-| :--- | :--- |
-| **Neuron state** (rest / active) | **Qubit state** ($\vert{}0\rangle$ / $\vert{}1\rangle$) |
-| **Light pulse** (dose $\theta$) | **$R_X(\theta)$ rotation** on the target qubit |
-| **Synaptic propagation** | **Quantum walk** under the XY Hamiltonian |
-| **Calcium imaging observation** | **Z-basis measurement** (State $1$ = *spike*) |
+| Concept | At the *C. elegans* | In our model | In the Qiskit circuit |
+| :--- | :--- | :--- | :--- |
+| **Neuron** | One of the 302 identified neuron cells | A neuron is *active* when it holds the excitation | One qubit: $\vert{}0\rangle$ = at rest, $\vert{}1\rangle$ = active. A circuit has 10 qubits: the neuron that fired and its 9 most connected neighbours |
+| **Light pulse** | A light dose opens the light-gated channels, so the neuron is more or less likely to fire | You hold the fire button to charge the dose $\theta$. The chance that the neuron fires is $\sin^2(\theta/2)$ | An $R_X(\theta)$ gate on the target qubit: $\cos(\theta/2)\vert{}0\rangle - i\sin(\theta/2)\vert{}1\rangle$ |
+| **Wiring** | Synapses seen under the electron microscope (Cook et al., 2019) | Two neurons are connected if they share at least one synapse; every connection weighs the same | The coupling matrix $J$, normalised so its largest eigenvalue is 1 |
+| **Spreading of the signal** | The activity travels from neuron to neuron through the synapses | The excitation is never created or destroyed: it hops between connected neurons as a wave, and the paths add up or cancel (interference) | Evolution under the XY Hamiltonian for a time $\tau$, built as `PauliEvolutionGate` with a Suzuki–Trotter decomposition into $R_{XX}$ and $R_{YY}$ gates |
+| **Reading the result** | Calcium imaging shows which neurons are active, without disturbing them | The measurement picks one neuron: the one that spikes and starts the next step. Measuring too often freezes the spike (quantum Zeno effect) | Z-basis measurement of the 10 qubits; the qubit read as $1$ is the spike. Shots with more than one $1$ are errors and are discarded (post-selection) |
 
 ---
 
 ## Interactive Visualization Platform (The Lab HUD)
 
-The simulation functions as both an educational platform and a scientific sandbox, featuring a custom **Heads-Up Display (HUD)** that provides real-time telemetry of the quantum state and biological reactions:
+The simulation functions as both an educational platform and a scientific sandbox, featuring a custom **HUD** that provides real-time telemetry of the quantum state and biological reactions:
 
-* **The Mission Log (Left):** Narrates the spike chain dynamically. As the cascade progresses, it details the exact biological behavior triggered in the worm (e.g., *egg laying, local muscle relaxation*).
-* **The Scanner (Right):** Isolates the exact 10-qubit circuit for the current step. It displays the Trotterized gates ($R_{XX}, R_{YY}$), valid measurement percentages, and compares the theoretical probability with real backend results.
-* **The Control Deck (Bottom):** Allows granular control over the laser dose ($\theta$) and the measurement interval ($\tau$) to physically test the Quantum Zeno effect.
-* **Biological Environment:** The 3D model reacts physically to the neural cascade, navigating through an environment populated by neon bacteria (representing *E. coli* food sources) based on sensory neuron activation.
+* **The Mission Log (Left):** Narrates the spike chain as the cascade progresses. Each time a neuron fires, it describes what the real worm does when that class of neuron is switched on (based on lesion and optogenetic experiments).
+* **The Scanner (Right):** Summarizes the 10-qubit circuit of the current step: the laser $R_X(\theta)$ and the Trotterized evolution $e^{-i\tau H}$. It also shows the share of valid shots (those with at most one excitation) and compares the theoretical probabilities with the counts returned by the backend you chose. Press **C** to open the circuit inspector and see every $R_{XX}$ and $R_{YY}$ gate.
+* **The Control Deck (Bottom):** Sets the target neuron, the laser dose ($\theta$) and the time between measurements ($\tau$).
+* **Biological Environment:** The 3D worm moves according to the neurons that fire, while neon bacteria drift around it. One of them is food: when a smell or taste neuron (AWA, AWC, ASE) is measured, the food glows and the head turns towards it, and forward-motion neurons bring it closer.
 
 ![The Lab HUD and Circuit Scanner](https://raw.githubusercontent.com/inaki-bermeo/Optogenetic-Quantum-Brain-/main/docs/card/panel1.jpg)
 
@@ -54,14 +55,14 @@ The simulation functions as both an educational platform and a scientific sandbo
 
 ## Theoretical Framework & Mathematical Formulation
 
-The physical mapping from biology to quantum mechanics relies on strict mathematical equivalencies, processed natively through Qiskit and rigorously modeled down to the hardware level.
+The physical mapping from biology to quantum computing relies on implementing the connectivty graph of the neurons to a random quantum walk, processed natively through Qiskit and ready to be implemented at the hardware level.
 
 **1. Symmetrization & Spectral Normalization ($J$)**
-Chemical synapses are directional, but unitary quantum evolution requires a Hermitian Hamiltonian. We symmetrize the real connectome data (Cook et al., 2019) applying a logarithmic dampening to heavy-tailed synapse counts:
+Chemical synapses are directional, but pure state unitary quantum evolution requires a Hermitian Hamiltonian. We symmetrize the real connectome data (Cook et al., 2019) by applying a logarithmic dampening to heavy-tailed synapse counts:
 
 $$W_{ij} = \log\left(1 + c_{i\rightarrow j} + c_{j\rightarrow i} + \max(g_{ij}, g_{ji})\right)$$
 
-To define time in natural $1/\gamma$ units, the matrix is normalized by its largest eigenvalue (spectral radius $\rho(W)$), ensuring $\Vert{}J\Vert{}_2 = 1$:
+To define time in natural $1/\gamma$ units, the matrix is normalized by its largest eigenvalue, ensuring $\Vert{}J\Vert{}_2 = 1$:
 
 $$J = \frac{W}{\lambda_{\max}(W)}$$
 
