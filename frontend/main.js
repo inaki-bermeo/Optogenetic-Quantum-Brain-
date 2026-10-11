@@ -8,11 +8,13 @@
 // HUD: the laser RX(θ) excites a neuron (hold to charge θ, tap to fire at the menu dose) and every step of
 //   the spike cascade is a 10-qubit Qiskit circuit (the neuron that fired + its 9 most connected
 //   neighbours) run on the selected `backend`. Measuring collapses the walk onto one neuron, which fires
-//   the next step. Stats and achievements (js/juego.js) are progress feedback, never different physics.
+//   the next step. If that neuron has a known behavioural role (js/conducta.js), the worm acts it out
+//   before the next step. Stats and achievements (js/juego.js) are progress feedback, never different physics.
 // Circuit inspector (key C): the exact QuantumCircuit of each step, drawn instantly from its
 //   instructions (every RXX/RYY gate), its measured counts, and Qiskit's own draw("mpl") figure.
 //
 // This effort is supported by Qollab & IonQ.
+import { conductaDe, Motor } from "./js/conducta.js";
 import { QUALITY, WormScene } from "./js/escena.js";
 import { dataTable, esc, groupedBars, SERIES_COLORS } from "./js/graficos.js";
 import { Intro } from "./js/intro.js";
@@ -48,6 +50,13 @@ const HELP = {
     "slices, imaged with an electron microscope, and every chemical synapse and gap junction was traced by hand " +
     "(data at wormwiring.org, edge list from OpenWorm c302). Positions of the 302 cell bodies come from OpenWorm. " +
     "The footer links to both sources.",
+  conducta: "The quantum cascade is our model: real C. elegans neurons are classical, and most do not even spike. " +
+    "What the worm does is real biology. Each neuron class is mapped to what experiments saw when those neurons " +
+    "were switched on with light or removed: AVA, AVD, AVE and head touch (ALM, AVM) make it back up, AVB, PVC and " +
+    "tail touch (PLM) drive it forward, ASH triggers an escape with an omega turn, RIV and SMD bend it ventrally, " +
+    "motor neurons bend the body near where they sit, MC pumps the pharynx, HSN lays eggs and RIS makes it stop. " +
+    "In the real worm, behaviour comes from whole circuits, so one neuron is a simplification. Neurons with no " +
+    "known direct effect make no movement, on purpose. References are in the project card.",
   shots: "A shot is one run of the circuit followed by one measurement. Quantum results are random, so the circuit " +
     "is repeated many times and we count how often each neuron came out as 1. The cascade then picks one shot at random.",
 };
@@ -274,7 +283,7 @@ async function fire(thetaCarga = null) {
   const theta = thetaCarga ?? physics().theta;
   setDose(theta);
   closeHelp();
-  Object.assign(cascade, { running: true, stop: false, centers: [state.source], steps: [] });
+  Object.assign(cascade, { running: true, stop: false, centers: [state.source], steps: [], conductas: [] });
   circ.follow = true;
   $("fire-btn").disabled = true;
   $("fire-label").textContent = "Running circuits…";
@@ -282,6 +291,7 @@ async function fire(thetaCarga = null) {
   $("casc-stop").disabled = false;
   $("casc-log").innerHTML = "";
   $("chain-n").textContent = "0";
+  $("casc-conducta").textContent = "Waiting for the first measurement…";
   juego.inicio(); // "First light" la primera vez (se muestra por juego.on.logro)
   renderStats(0, total);
   let centro = state.source;
@@ -295,6 +305,8 @@ async function fire(thetaCarga = null) {
     `Sending its 10-qubit circuit to <b>${esc(state.backend.nombre)}</b>…`);
   if (ionq) toast("IonQ accepts one job per run: only the first step will run.");
   let fin = "completa";
+  const motor = new Motor();
+  let actuo = null; // la misma neurona disparando otra vez no repite la conducta
   try {
     for (let k = 1; k <= total; k++) {
       if (cascade.stop) { fin = "detenida"; break; }
@@ -319,7 +331,11 @@ async function fire(thetaCarga = null) {
       }
       if (r.spike) sound.disparo(nota, r.salto); else sound.vacio();
       applyCascadeScene(r);
-      narrateMeasurement(r);
+      const ev = r.spike && r.spike !== actuo ? motor.aplicar(r.spike) : null;
+      if (r.spike) actuo = r.spike;
+      if (ev) { cascade.conductas.push(ev.entrada.texto); juego.conducta(ev); }
+      narrateMeasurement(r, ev);
+      renderConducta(r, ev);
       juego.paso(r, { theta: params.theta, ionq: state.backend.ionq });
       renderStats(k, total);
       if (!r.spike) {
@@ -327,7 +343,9 @@ async function fire(thetaCarga = null) {
         break;
       }
       centro = r.spike;
-      if (!REDUCED) await sleep(r.salto ? 600 : 250);
+      if (ev && !REDUCED && !ui.inspector && !cascade.stop) await actuar(ev, r.spike_indice);
+      else if (!REDUCED) await sleep(r.salto ? 600 : 250);
+      motor.decaer();
     }
   } catch (e) {
     fin = "error";
@@ -335,6 +353,7 @@ async function fire(thetaCarga = null) {
   } finally {
     cascade.running = false;
     sound.pararFondo();
+    scene.setDrive(motor.d);
     setTimeout(() => { if (!cascade.running) { scene.setSwim(true); sound.musicaDuck(false); } }, 2500);
     $("casc-stop").disabled = true;
     const bloqueado = state.backend.ionq && state.jobsSent >= 1;
@@ -343,12 +362,15 @@ async function fire(thetaCarga = null) {
     const n = cascade.steps.length, saltos = cascade.centers.length - 1;
     const motivo = { completa: "", detenida: " (stopped)", error: " (error)",
       vacio: ": the neuron did not fire (shot with no excitation)", perdida: ": no valid shot left" }[fin];
-    const msg = `Cascade${motivo}. ${n} circuits run, ${saltos} jumps: ${cascade.centers.join(" → ")}.`;
+    const hechos = resumenConductas(cascade.conductas);
+    const msg = `Cascade${motivo}. ${n} circuits run, ${saltos} jumps: ${cascade.centers.join(" → ")}.` +
+      (hechos ? ` The worm: ${hechos}.` : "");
     $("casc-estado").textContent = msg + (bloqueado ? " For another job on IonQ, press Stop and Run." : "");
     announce(msg);
     if (n && fin !== "vacio") {
       narrate("Cascade finished", `<b>${n}</b> circuits, <b>${saltos}</b> jumps: ` +
         `<span class="a">${cascade.centers.map(esc).join(" → ")}</span>. ` +
+        (hechos ? `The worm acted out: ${esc(hechos)}. ` : "") +
         (saltos <= 1 && tau <= 4
           ? "With such a short τ, measuring keeps pinning the spike in place: the quantum Zeno effect. Try τ = 8."
           : "Each jump was decided by measuring a real circuit. Press <b>C</b> to inspect every gate."),
@@ -380,7 +402,7 @@ function narrateSuperposition(r) {
     `(${top}…). Measuring will pick one.`);
 }
 
-function narrateMeasurement(r) {
+function narrateMeasurement(r, ev = null) {
   const i = r.spike ? r.ventana.indexOf(r.spike) : -1;
   const share = i >= 0 ? pct(r.medida[i] / Math.max(1e-9, r.medida.reduce((a, b) => a + b, 0))) : "";
   let html;
@@ -398,7 +420,51 @@ function narrateMeasurement(r) {
         ? "With a short τ this is likely: measuring often freezes the walk (Zeno effect)."
         : "The wave had not fully left yet, so staying put was the most likely outcome. It tries again.");
   }
+  if (ev) html += ` In the real worm, ${esc(ev.nombre)} (${esc(ev.entrada.clase)}) means: <b>${esc(ev.entrada.texto)}</b>.`;
   narrate(`Step ${r.k} · measured`, html, "collapse");
+}
+
+// Conductas que pasan en una parte del cuerpo: la cámara se acerca un momento y vuelve a la vista de la persona.
+// El giro omega curva todo el cuerpo hacia abajo (ventral): la cámara baja para encuadrar el lazo entero.
+const ACERCAR = new Set(["cabeza", "flexion", "relajar", "bombeo", "puesta", "omega", "escape"]);
+
+/** El gusano actúa la conducta (con su sonido y, si es local, un acercamiento de cámara). */
+async function actuar(ev, indice) {
+  if (!scene.puedeActuar) return;
+  sound.conducta(ev.programa);
+  if (!ACERCAR.has(ev.programa) || scene.arrastrando || indice == null) { await scene.actuar(ev, indice); return; }
+  const vista = scene.guardarVista();
+  const opts = { dur: 700, dist: 11 };
+  if (ev.programa === "omega" || ev.programa === "escape") scene.flyToPoint(scene.centroOmega(), { dur: 900, dist: 22 });
+  else if (ev.programa === "puesta") scene.flyToPoint(scene.vulva(), opts);
+  else scene.flyTo(indice, opts);
+  await scene.actuar(ev, indice);
+  if (!scene.arrastrando) await scene.volverVista(vista, 600);
+}
+
+/** Chip de conducta (o "no known movement") para la neurona medida. */
+function chipConducta(c) {
+  return c
+    ? `<span class="chip bio" title="${esc(c.clase)} · ${esc(c.ref.join("; "))}">worm <b>${esc(c.texto)}</b></span>`
+    : `<span class="chip" title="No established direct effect on movement">worm <b>no known movement</b></span>`;
+}
+
+/** "Qué hizo el gusano": la conducta de la neurona medida, con sus referencias. */
+function renderConducta(r, ev) {
+  if (!r.spike) return;
+  const c = ev?.entrada ?? conductaDe(r.spike);
+  $("casc-conducta").innerHTML = c
+    ? `<b>${esc(r.spike)}</b> is ${/^[AEIOU]/i.test(c.clase) ? "an" : "a"} ${esc(c.clase)}: <b>${esc(c.texto)}</b>` +
+      (ev ? "." : " (it fired again, so the worm does not repeat it).") +
+      ` <span class="ref">${esc(c.ref.join("; "))}</span>`
+    : `<b>${esc(r.spike)}</b> has no known direct effect on movement, so the worm stays still.`;
+}
+
+/** Cuenta de conductas para el resumen: "backward (reversal) ×2, pharynx pumping". */
+function resumenConductas(lista) {
+  const n = new Map();
+  for (const t of lista) n.set(t, (n.get(t) ?? 0) + 1);
+  return [...n].map(([t, k]) => (k > 1 ? `${t} ×${k}` : t)).join(", ");
 }
 
 function renderCascadePanel(r, k, total) {
@@ -410,6 +476,7 @@ function renderCascadePanel(r, k, total) {
     `<span class="chip" title="Shots with at most one excitation (post-selection)">valid <b>${pct(r.fraccion_valida)}</b></span>`,
     r.fraccion_vacio > 0 ? `<span class="chip warn" title="Shots with no excitation: the neuron did not fire">empty <b>${pct(r.fraccion_vacio)}</b></span>` : "",
     `<span class="chip ${r.salto ? "good" : ""}">spike <b>${esc(r.spike ?? "—")}</b></span>`,
+    r.spike ? chipConducta(conductaDe(r.spike)) : "",
   ].join("");
   const series = [
     { key: "exact", name: "Theory", values: r.teoria_ventana },
@@ -428,7 +495,10 @@ function renderCascadePanel(r, k, total) {
   $("casc-log").appendChild(li);
   $("chain-n").textContent = String($("casc-log").children.length);
   $("casc-log").scrollTop = $("casc-log").scrollHeight;
-  if (r.salto) announce(`Step ${k}: ${r.spike} fires.`);
+  if (r.salto) {
+    const c = conductaDe(r.spike);
+    announce(`Step ${k}: ${r.spike} fires.` + (c ? ` The worm: ${c.texto}.` : ""));
+  }
 }
 
 /** Resumen del circuito sobre el gusano (sin matplotlib): RX → e^{−iτH} → medidas → bits. */

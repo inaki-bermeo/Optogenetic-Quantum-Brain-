@@ -235,6 +235,47 @@ export class Sonido {
     });
   }
 
+  /**
+   * Conducta del gusano (js/conducta.js): un gesto corto y suave por programa, por debajo del colapso.
+   * reversa/escape: glissando que baja · avance: que sube · omega: barrido lento · bombeo: 6 chasquidos
+   * a 4 Hz (el ritmo de la faringe) · puesta: "pop" cuando sale el huevo · quietud: tono que se apaga ·
+   * flexión, cabeza y relajación: un golpe sordo.
+   */
+  conducta(programa) {
+    if (!this.listo) return;
+    const ctx = this.ctx, t0 = ctx.currentTime + 0.02;
+    const bus = ctx.createGain();
+    bus.gain.value = 0.55;
+    bus.connect(this.master);
+    const glide = (f0, f1, dur, pico, tipo = "sine", d = 0) => {
+      const t = t0 + d;
+      const o = this._osc(tipo, f0, t);
+      o.frequency.exponentialRampToValueAtTime(f1, t + dur);
+      const g = this._env(t, pico, 0.05, dur / 3, t + dur + 0.3);
+      o.connect(g).connect(bus);
+      o.start(t); o.stop(t + dur + 0.35);
+    };
+    const golpe = (d, f, pico, dur = 0.18) => {
+      const t = t0 + d;
+      const o = this._osc("sine", f, t);
+      o.frequency.exponentialRampToValueAtTime(f * 0.5, t + dur);
+      const g = this._env(t, pico, 0.004, dur / 4, t + dur + 0.1);
+      o.connect(g).connect(bus);
+      o.start(t); o.stop(t + dur + 0.15);
+    };
+    switch (programa) {
+      case "reversa": glide(520, 170, 0.7, 0.1, "triangle"); break;
+      case "escape": glide(520, 170, 0.7, 0.1, "triangle"); glide(140, 420, 1.2, 0.08, "triangle", 1.3); break;
+      case "avance": glide(170, 520, 0.7, 0.1, "triangle"); break;
+      case "tendencia": glide(300, 340, 0.5, 0.05); break;
+      case "omega": glide(140, 420, 1.4, 0.09, "triangle"); break;
+      case "bombeo": for (let i = 0; i < 6; i++) golpe(i * 0.25, 1100, 0.05, 0.04); break;
+      case "puesta": golpe(0.45, 700, 0.12, 0.1); golpe(0.5, 1400, 0.05, 0.06); break;
+      case "quietud": glide(220, 110, 1.3, 0.07); break;
+      default: golpe(0, 190, 0.12); // flexión, cabeza, relajación
+    }
+  }
+
   /** No disparó ninguna neurona: golpe grave que cae. */
   vacio() {
     if (!this.listo) return;

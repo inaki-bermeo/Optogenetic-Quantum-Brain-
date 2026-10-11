@@ -21,6 +21,7 @@
   --spike: #ff6a2b;
   --warn: #ffd23f;
   --ok: #5dff9e;
+  --bio: #3fd1b0;        /* conducta del gusano · 10.6:1 sobre --void */
   --bad: #ff7a8a;
   --focus: #ffd23f;
   --sensory: #2dd4bf;
@@ -130,6 +131,14 @@
   text-transform: uppercase; }
 .chip b { color: var(--text); font-weight: 600; }
 .chip.good b { color: var(--spike); } .chip.warn b { color: var(--warn); }
+.chip.bio { border-color: rgba(63,209,176,.4); } .chip.bio b { color: var(--bio); }
+/* conducta del gusano (escáner): qué hizo el gusano real con la neurona medida */
+.conducta-box { margin: 8px 0 10px; padding: 7px 9px; border-left: 2px solid var(--bio); background: rgba(63,209,176,.06); }
+.conducta-head { display: flex; align-items: center; gap: 6px; margin-bottom: 3px; }
+.conducta-head .lbl { color: var(--bio); }
+.conducta { margin: 0; font-size: 12.5px; line-height: 1.4; color: var(--dim); }
+.conducta b { color: var(--text); font-weight: 600; }
+.conducta .ref { display: block; margin-top: 3px; font: 10.5px var(--mono); color: var(--faint); }
 .chart { margin: 6px 0 0; }
 .chart svg { width: 100%; max-width: 440px; display: block; overflow: visible; }
 .chart .axis text { fill: var(--dim); font-size: 10px; font-family: var(--mono); }

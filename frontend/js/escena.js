@@ -58,15 +58,36 @@ const S_TR = 0.028; // ejes transversales (×1.4 respecto del real, para leer me
 const GLTF_SCALE = 0.01; // 1 unidad glTF = 100 µm  (ver docs/3d-model.md)
 const SWIM_FRAME = 1 / 30; // el nado, si es lo único que se mueve, se dibuja a 30 cuadros por segundo
 
-// Nado: onda transversal y = A·(0.3 + 0.7·s)·sin(k(x − x0) − ωt), s = 0 en la cabeza y 1 en la cola.
+// Nado: onda dorsoventral y = A·(0.3 + 0.7·s)·sin(k(x − x0) − φ), s = 0 en la cabeza y 1 en la cola.
+// φ avanza con signo: positivo, la onda viaja de la cabeza a la cola (avance); negativo, al revés (reversa).
+// Encima, las conductas de js/conducta.js: oscilación de la cabeza, flexión o relajación local y la
+// curva ventral del giro omega (deformador de flexión alrededor del centro del cuerpo).
+// Y es el eje dorsoventral: ventral = −Y. deform() en JS repite exactamente esta cuenta.
 const SWIM_AMP = 0.13;
 const SWIM_GLSL = /* glsl */`
-  uniform float uSwimAmp; uniform float uSwimT; uniform float uSwimK; uniform float uSwimX0; uniform float uSwimL; uniform float uSwimW;
-  float wormWave(float x){
-    float s = clamp((x - uSwimX0) / uSwimL, 0.0, 1.0);
-    return uSwimAmp * (0.3 + 0.7 * s) * sin(uSwimK * (x - uSwimX0) - uSwimW * uSwimT);
+  uniform float uSwimAmp; uniform float uSwimT; uniform float uSwimFase; uniform float uSwimK; uniform float uSwimX0; uniform float uSwimL;
+  uniform float uCabeza; uniform vec3 uFlex; uniform vec3 uRelaja; uniform float uBend;
+  vec3 wormDeform(vec3 p){
+    float s = clamp((p.x - uSwimX0) / uSwimL, 0.0, 1.0);
+    float g = (s - uRelaja.x) / uRelaja.z;
+    float amp = uSwimAmp * (0.3 + 0.7 * s) * (1.0 - uRelaja.y * exp(-g * g));
+    float y = p.y + amp * sin(uSwimK * (p.x - uSwimX0) - uSwimFase);
+    float h = max(0.0, 1.0 - s / 0.22);
+    y += uCabeza * h * h * sin(uSwimT * 5.0);
+    float f = (s - uFlex.x) / uFlex.z;
+    y += uFlex.y * exp(-f * f);
+    if (abs(uBend) > 1e-4) {
+      float xm = uSwimX0 + 0.5 * uSwimL, R = uSwimL / uBend, th = uBend * (p.x - xm) / uSwimL, r = R - y;
+      return vec3(xm + r * sin(th), R - r * cos(th), p.z);
+    }
+    return vec3(p.x, y, p.z);
   }
-  float wormSlope(float x){ return (wormWave(x + 0.01) - wormWave(x - 0.01)) / 0.02; }
+  // gira la normal con la tangente de la línea media (el cuerpo se curva, no sólo se traslada)
+  vec3 wormNormal(vec3 p, vec3 n){
+    vec3 t = wormDeform(p + vec3(0.01, 0.0, 0.0)) - wormDeform(p - vec3(0.01, 0.0, 0.0));
+    float a = atan(t.y, t.x), c = cos(a), sn = sin(a);
+    return normalize(vec3(c * n.x - sn * n.y, sn * n.x + c * n.y, n.z));
+  }
 `;
 const PROJECT_SWIM = /* glsl */`
   vec4 mvPosition = vec4( transformed, 1.0 );
@@ -77,10 +98,16 @@ const PROJECT_SWIM = /* glsl */`
     mvPosition = instanceMatrix * mvPosition;
   #endif
   vec4 swimW = modelMatrix * mvPosition;
-  swimW.y += wormWave( swimW.x );
+  swimW.xyz = wormDeform( swimW.xyz );
   mvPosition = viewMatrix * swimW;
   gl_Position = projectionMatrix * mvPosition;
 `;
+
+const SWIM_W = (2 * Math.PI) / 3.2; // un ciclo cada 3.2 s: lento y suave
+// Valores de reposo de la conducta: dir/freq de la onda, amplitud relativa, cabeza, flexión local,
+// relajación local, curva omega (rad, ventral < 0), bombeo de la faringe y brillo del cuerpo.
+const MOTION_REPOSO = { dir: 1, freq: 1, amp: 1, cabeza: 0, flex: 0, relaja: 0, bend: 0, bombeo: 0, brillo: 1 };
+const MOTION_TAU = { dir: 0.35, freq: 0.3, amp: 0.25, cabeza: 0.25, flex: 0.25, relaja: 0.3, bend: 0.45, bombeo: 0.15, brillo: 0.4 };
 
 export const QUALITY = {
   alta: { label: "High", pixelRatio: () => Math.min(window.devicePixelRatio, 1.75), bloom: true, bloomScale: 1 },
@@ -110,6 +137,10 @@ export class WormScene {
     this.controls.autoRotate = false;
     this.controls.autoRotateSpeed = 0.35;
     this.controls.addEventListener("change", () => this.requestRender());
+    // si la persona arrastra la cámara, manda ella: se corta cualquier vuelo y no hay acercamientos
+    this.arrastrando = false;
+    this.controls.addEventListener("start", () => { this.arrastrando = true; this._tween?.resolve(); this._tween = null; });
+    this.controls.addEventListener("end", () => { this.arrastrando = false; });
 
     this.composer = new EffectComposer(this.renderer);
     this.composer.addPass(new RenderPass(this.scene, this.camera));
@@ -135,10 +166,17 @@ export class WormScene {
     this.reducedMotion = REDUCED_MOTION;
     // uniforms compartidos por todos los materiales que ondulan
     this.swimU = {
-      uSwimAmp: { value: 0 }, uSwimT: { value: 0 }, uSwimK: { value: 1 }, uSwimX0: { value: 0 }, uSwimL: { value: 1 },
-      uSwimW: { value: (2 * Math.PI) / 3.2 }, // un ciclo cada 3.2 s: lento y suave
+      uSwimAmp: { value: 0 }, uSwimT: { value: 0 }, uSwimFase: { value: 0 }, uSwimK: { value: 1 }, uSwimX0: { value: 0 },
+      uSwimL: { value: 1 }, uCabeza: { value: 0 }, uFlex: { value: new THREE.Vector3(0.5, 0, 0.1) },
+      uRelaja: { value: new THREE.Vector3(0.5, 0, 0.1) }, uBend: { value: 0 }, uBrillo: { value: 1 },
     };
-    this.swim = { enabled: !REDUCED_MOTION, target: REDUCED_MOTION ? 0 : 1, level: 0 };
+    this.swim = { enabled: !REDUCED_MOTION, target: REDUCED_MOTION ? 0 : 1, level: 0, rampa: 0.9 };
+    // conducta en curso (ver actuar): cada valor se acerca suavemente a su objetivo
+    this.motion = { ...MOTION_REPOSO };
+    this.motionT = { ...MOTION_REPOSO };
+    this._pumpU = { value: 0 }; // sólo la faringe la usa
+    this._actuar = null;
+    this._driveT = 0;
     this.glbBytes = null;
     this._paused = false; // lo decide main.js (panel 2, pantalla de inicio)
     this._onScreen = true; // IntersectionObserver
@@ -165,6 +203,7 @@ export class WormScene {
       this.renderer.setAnimationLoop(null);
       // las animaciones en curso terminan ya: la cascada espera la promesa del colapso
       this._endCollapse();
+      this._endActuar();
       this._removeLaser();
       if (this._tween) { const T = this._tween; this._animateTween(T.dur); }
     }
@@ -241,24 +280,25 @@ export class WormScene {
    * borde brillante (Fresnel), relleno suave con luz desde arriba, anillos de la cutícula a lo
    * largo del eje anteroposterior y un grano fino (opcional, para el intestino). Ondula con el nado.
    */
-  _bodyMaterial({ color, rim, strength = 1, fill = 0.18, annuli = 0, grain = 0, side = THREE.DoubleSide } = {}) {
+  _bodyMaterial({ color, rim, strength = 1, fill = 0.18, annuli = 0, grain = 0, side = THREE.DoubleSide, pump = null } = {}) {
     return new THREE.ShaderMaterial({
       transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side,
       uniforms: {
         uColor: { value: new THREE.Color(color) }, uRim: { value: new THREE.Color(rim) },
         uK: { value: strength }, uFill: { value: fill }, uAnn: { value: annuli }, uGrain: { value: grain },
+        uPump: pump ?? { value: 0 },
         ...this.swimU,
       },
       vertexShader: /* glsl */`
         ${SWIM_GLSL}
+        uniform float uPump;
         varying vec3 vN; varying vec3 vV; varying vec3 vW;
         void main(){
+          vec3 n0 = normalize(mat3(modelMatrix) * normal);
           vec4 w = modelMatrix * vec4(position, 1.0);
-          float dy = wormWave(w.x);
-          w.y += dy;
-          // la normal se inclina con la pendiente de la onda (el cuerpo se curva, no sólo se traslada)
-          vec3 n = normalize(mat3(modelMatrix) * normal);
-          n = normalize(n - vec3(wormSlope(w.x) * n.y, 0.0, 0.0));
+          w.xyz += n0 * uPump; // bombeo: la faringe se ensancha y se contrae
+          vec3 n = wormNormal(w.xyz, n0);
+          w.xyz = wormDeform(w.xyz);
           vW = w.xyz;
           vec4 mv = viewMatrix * w;
           vN = normalize(mat3(viewMatrix) * n); vV = normalize(-mv.xyz);
@@ -266,6 +306,7 @@ export class WormScene {
         }`,
       fragmentShader: /* glsl */`
         uniform vec3 uColor; uniform vec3 uRim; uniform float uK; uniform float uFill; uniform float uAnn; uniform float uGrain;
+        uniform float uBrillo;
         varying vec3 vN; varying vec3 vV; varying vec3 vW;
         float hash(vec3 p){ return fract(sin(dot(p, vec3(12.9898, 78.233, 37.719))) * 43758.5453); }
         void main(){
@@ -281,7 +322,7 @@ export class WormScene {
           float g = uGrain > 0.0 ? mix(1.0, 0.55 + 0.9 * hash(floor(vW * 14.0)), uGrain) : 1.0;
           vec3 c = uColor * uFill * lit * g + uRim * fres * (0.55 + 0.45 * lit);
           c *= ann;
-          gl_FragColor = vec4(c * uK, 1.0);
+          gl_FragColor = vec4(c * uK * uBrillo, 1.0);
         }`,
     });
   }
@@ -338,11 +379,13 @@ export class WormScene {
     group.add(new THREE.Mesh(cuerpo, this._bodyMaterial({ color: "#2a74ff", rim: "#9eeeff", strength: 0.8, fill: 0.08,
       annuli: 1 / 0.16, side: THREE.FrontSide })));
     if (faringe) {
-      group.add(new THREE.Mesh(faringe, this._bodyMaterial({ color: "#7fd6ff", rim: "#d8f6ff", strength: 0.45, fill: 0.22 })));
+      group.add(new THREE.Mesh(faringe, this._bodyMaterial({ color: "#7fd6ff", rim: "#d8f6ff", strength: 0.45, fill: 0.22,
+        pump: this._pumpU })));
       faringe.computeBoundingBox();
     }
     // intestino: tubo a lo largo de la línea media, desde el bulbo posterior de la faringe hasta cerca de la cola
     const linea = this._centerline(cuerpo, 64);
+    this._linea = linea; // también ubica la vulva (puesta de huevos)
     if (linea) {
       const head = bb.min.x, tail = bb.max.x, L = tail - head;
       const x0 = faringe ? faringe.boundingBox.max.x + 0.02 * L : head + 0.2 * L;
@@ -451,24 +494,182 @@ export class WormScene {
   setSwim(on) { this.swim.target = on && this.swim.enabled ? 1 : 0; this.requestRender(); }
   setSwimEnabled(v) { this.swim.enabled = v && !this.reducedMotion; this.setSwim(v); }
 
-  /** Desplazamiento vertical de la onda en x (la misma fórmula que el shader, para picking y etiquetas). */
-  swimY(x) {
-    const U = this.swimU;
-    const a = U.uSwimAmp.value;
-    if (a === 0) return 0;
-    const s = Math.min(1, Math.max(0, (x - U.uSwimX0.value) / U.uSwimL.value));
-    return a * (0.3 + 0.7 * s) * Math.sin(U.uSwimK.value * (x - U.uSwimX0.value) - U.uSwimW.value * U.uSwimT.value);
+  /** Deforma p (escena) igual que wormDeform del shader: para picking y etiquetas. Modifica p y lo devuelve. */
+  deform(p) {
+    const U = this.swimU, X0 = U.uSwimX0.value, L = U.uSwimL.value, F = U.uFlex.value, Rl = U.uRelaja.value;
+    const s = Math.min(1, Math.max(0, (p.x - X0) / L));
+    const g = (s - Rl.x) / Rl.z;
+    const amp = U.uSwimAmp.value * (0.3 + 0.7 * s) * (1 - Rl.y * Math.exp(-g * g));
+    let y = p.y + amp * Math.sin(U.uSwimK.value * (p.x - X0) - U.uSwimFase.value);
+    const h = Math.max(0, 1 - s / 0.22);
+    y += U.uCabeza.value * h * h * Math.sin(U.uSwimT.value * 5);
+    const f = (s - F.x) / F.z;
+    y += F.y * Math.exp(-f * f);
+    const b = U.uBend.value;
+    if (Math.abs(b) > 1e-4) {
+      const xm = X0 + 0.5 * L, R = L / b, th = (b * (p.x - xm)) / L, r = R - y;
+      p.x = xm + r * Math.sin(th);
+      p.y = R - r * Math.cos(th);
+    } else {
+      p.y = y;
+    }
+    return p;
   }
 
   _animateSwim(dt) {
-    const S = this.swim, U = this.swimU;
-    const goal = S.target;
-    if (S.level === goal && goal === 0) return false;
-    S.level += Math.sign(goal - S.level) * Math.min(Math.abs(goal - S.level), dt / 0.9);
+    const S = this.swim, U = this.swimU, M = this.motion, T = this.motionT;
+    if (this._actuar) this._actuar.update(dt);
+    let moving = false;
+    const rapido = this._actuar?.vuelta ? 2 : 1; // la vuelta al reposo es más corta que la conducta
+    for (const k in M) {
+      const d = T[k] - M[k];
+      if (d === 0) continue;
+      moving = true;
+      M[k] = Math.abs(d) < 0.01 ? T[k] : M[k] + d * Math.min(1, (rapido * dt) / MOTION_TAU[k]);
+    }
+    const quieto = !this._actuar && !moving && S.target === 0 && S.level === 0 && this._enReposo();
+    if (quieto) return false;
+    S.level += Math.sign(S.target - S.level) * Math.min(Math.abs(S.target - S.level), dt / S.rampa);
     const e = S.level * S.level * (3 - 2 * S.level);
-    U.uSwimAmp.value = SWIM_AMP * e;
     U.uSwimT.value += dt;
+    U.uSwimFase.value += M.dir * M.freq * SWIM_W * dt * e;
+    if (this._driveT > 0 && S.level > 0) {
+      this._driveT -= dt;
+      if (this._driveT <= 0) Object.assign(T, { dir: 1, freq: 1 }); // vuelve al avance, lo normal del gusano
+    }
+    this._writeMotion(e);
     return true;
+  }
+
+  _writeMotion(e) {
+    const U = this.swimU, M = this.motion;
+    U.uSwimAmp.value = SWIM_AMP * e * M.amp;
+    U.uCabeza.value = M.cabeza;
+    U.uFlex.value.y = M.flex;
+    U.uRelaja.value.y = M.relaja;
+    U.uBend.value = M.bend;
+    U.uBrillo.value = M.brillo;
+    // bombeo de la faringe: ~4 por segundo (el gusano real llega a ~250 por minuto)
+    this._pumpU.value = 0.035 * M.bombeo * (0.5 + 0.5 * Math.sin(2 * Math.PI * 4 * U.uSwimT.value));
+  }
+
+  _enReposo() {
+    const M = this.motion;
+    return M.amp === 1 && M.cabeza === 0 && M.flex === 0 && M.relaja === 0 && M.bend === 0 && M.bombeo === 0 && M.brillo === 1;
+  }
+
+  // -------------------------------------------------------------- conducta
+  /**
+   * El gusano actúa la conducta de una neurona (evento de js/conducta.js, Motor.aplicar).
+   * `indice` ubica la flexión local a lo largo del cuerpo. Devuelve una promesa que se resuelve cuando
+   * todo volvió al reposo (el colapso siguiente necesita las neuronas en su lugar real); inmediata si
+   * no hay movimiento (prefers-reduced-motion, nado desactivado o lienzo oculto).
+   */
+  /** ¿Se puede animar una conducta ahora? (no con prefers-reduced-motion, nado apagado o lienzo oculto) */
+  get puedeActuar() { return !this.reducedMotion && this.swim.enabled && this._running && !!this.positions; }
+
+  actuar(ev, indice = -1, { dur = 1.6 } = {}) {
+    this._endActuar();
+    if (!ev || !this.puedeActuar) return Promise.resolve();
+    const U = this.swimU, T = this.motionT;
+    const s = indice >= 0 ? Math.min(1, Math.max(0, (this.positions[indice].x - U.uSwimX0.value) / U.uSwimL.value)) : 0.5;
+    const atras = ev.d < -0.25;
+    Object.assign(T, MOTION_REPOSO, { dir: atras ? -1 : 1, amp: 0 });
+    const omega = { amp: 0.35, freq: 1, bend: -1.6 * Math.PI };
+    switch (ev.programa) {
+      case "reversa": Object.assign(T, { dir: -1, freq: 1.8, amp: 3 }); break;
+      case "avance": Object.assign(T, { dir: 1, freq: 1.8, amp: 2.6 }); break;
+      case "tendencia": Object.assign(T, { freq: 1.2, amp: 1.6 }); break;
+      case "escape": Object.assign(T, { dir: -1, freq: 1.8, amp: 3 }); dur *= 1.6; break;
+      case "omega": Object.assign(T, omega, { bend: Math.sign(ev.lado || -1) * 1.6 * Math.PI }); dur *= 1.25; break;
+      case "cabeza": T.cabeza = 0.8; break;
+      case "flexion": T.flex = 0.8 * (ev.lado || 1); U.uFlex.value.set(s, 0, 0.09); break;
+      case "relajar": Object.assign(T, { amp: 2, relaja: 1 }); U.uRelaja.value.set(s, 0, 0.12); break;
+      case "bombeo": T.bombeo = 1; break;
+      case "puesta": T.flex = -0.25; U.uFlex.value.set(0.5, 0, 0.05); this._ponerHuevo(); break;
+      case "quietud": T.brillo = 0.55; break;
+      default: break;
+    }
+    this.swim.rampa = 0.4;
+    this.swim.target = 1;
+    this.requestRender();
+    return new Promise((resolve) => {
+      const A = { t: 0, dur, ev, resolve, vuelta: false, giro: false };
+      A.update = (dt) => {
+        A.t += dt;
+        if (ev.programa === "escape" && !A.giro && A.t > 0.55 * A.dur) { A.giro = true; Object.assign(T, omega); }
+        if (this._huevo) {
+          const u = Math.min(1, Math.max(0, (A.t - 0.4) / (A.dur - 0.4)));
+          this._huevo.position.y = this._huevo.userData.y0 - 0.9 * u;
+          this._huevo.material.uniforms.uK.value = 0.9 * Math.sin(Math.PI * u);
+        }
+        if (!A.vuelta && A.t >= A.dur) {
+          A.vuelta = true;
+          Object.assign(T, MOTION_REPOSO, { dir: T.dir });
+          this.swim.target = 0;
+        }
+        if (A.vuelta && this.swim.level === 0 && this._enReposo()) this._endActuar();
+      };
+      this._actuar = A;
+    });
+  }
+
+  /** Termina la conducta en curso ya mismo: todo vuelve al reposo y se resuelve la promesa. */
+  _endActuar() {
+    const A = this._actuar;
+    if (!A) return;
+    this._actuar = null;
+    Object.assign(this.motion, MOTION_REPOSO, { dir: this.motion.dir });
+    Object.assign(this.motionT, MOTION_REPOSO, { dir: this.motion.dir });
+    Object.assign(this.swim, { level: 0, target: 0, rampa: 0.9 });
+    this._writeMotion(0);
+    this._quitarHuevo();
+    this.requestRender();
+    A.resolve();
+  }
+
+  /** Tras la cascada, el nado libre sigue el impulso final: si quedó hacia atrás, retrocede unos segundos. */
+  setDrive(d) {
+    if (this._actuar) return;
+    const atras = d < -0.3;
+    Object.assign(this.motionT, { dir: atras ? -1 : 1, freq: atras ? 1.4 : 1 });
+    this._driveT = atras ? 4 : 0;
+  }
+
+  /** Centro del lazo del giro omega (la curva ventral de actuar), para encuadrarlo entero. */
+  centroOmega() {
+    const U = this.swimU;
+    return new THREE.Vector3(U.uSwimX0.value + 0.5 * U.uSwimL.value, -U.uSwimL.value / (1.6 * Math.PI), 0);
+  }
+
+  /** La vulva: cara ventral del cuerpo, a mitad del largo (en reposo). */
+  vulva() {
+    const U = this.swimU, x = U.uSwimX0.value + 0.5 * U.uSwimL.value;
+    let cy = 0, cz = 0, r = 0.8;
+    if (this._linea) [cy, cz, r] = this._linea(x);
+    else if (this.bodyBox) { cy = (this.bodyBox.min.y + this.bodyBox.max.y) / 2; r = (this.bodyBox.max.y - this.bodyBox.min.y) / 2; }
+    return new THREE.Vector3(x, cy - 0.85 * r, cz);
+  }
+
+  /** Un huevo sale por la vulva. */
+  _ponerHuevo() {
+    this._quitarHuevo();
+    // mismo aspecto de microscopio que el cuerpo: borde brillante y relleno tenue (uK hace el fundido)
+    const egg = new THREE.Mesh(new THREE.SphereGeometry(1, 24, 16),
+      this._bodyMaterial({ color: "#3fd1b0", rim: "#d8fff4", strength: 0, fill: 0.35, grain: 0.35 }));
+    egg.scale.set(0.45, 0.3, 0.3); // ~55 × 35 µm, como un huevo real
+    egg.position.copy(this.vulva());
+    egg.userData.y0 = egg.position.y;
+    this.scene.add(egg);
+    this._huevo = egg;
+  }
+
+  _quitarHuevo() {
+    if (!this._huevo) return;
+    this.scene.remove(this._huevo);
+    this._huevo.geometry.dispose();
+    this._huevo.material.dispose();
+    this._huevo = null;
   }
 
   /** Aplica la onda del nado a un material estándar de three.js (neuronas, sinapsis, anillos, láser…). */
@@ -788,12 +989,18 @@ export class WormScene {
   cancelCollapse() { this._endCollapse(); }
 
   /** Vuelo de cámara (con aceleración) hasta mirar la neurona `index` desde `dist` unidades. */
-  flyTo(index, { dur = 1200, dist = 6 } = {}) {
-    const p = this.positions[index].clone();
-    p.y += this.swimY(p.x);
+  flyTo(index, opts) { return this.flyToPoint(this.deform(this.positions[index].clone()), opts); }
+
+  /** Vuelo de cámara hasta mirar el punto `p` (escena) desde `dist` unidades, sin cambiar de lado. */
+  flyToPoint(p, { dur = 1200, dist = 6 } = {}) {
     const dir = this.camera.position.clone().sub(this.controls.target).normalize();
     return this._volar(p.clone().addScaledVector(dir, dist).add(new THREE.Vector3(0, dist * 0.18, 0)), p, dur);
   }
+
+  /** Vista actual de la cámara, para volver a ella después de un acercamiento. */
+  guardarVista() { return { pos: this.camera.position.clone(), target: this.controls.target.clone() }; }
+
+  volverVista(v, dur = 600) { return v ? this._volar(v.pos, v.target, dur) : Promise.resolve(); }
 
   /** Vuelve a la vista general. */
   flyHome(dur = 1200) { return this._volar(new THREE.Vector3(-1.2, 6.0, 23.5), new THREE.Vector3(0, 0, 0), dur); }
@@ -895,7 +1102,7 @@ export class WormScene {
     let best = -1, bestD = 14 * 14, bestZ = Infinity;
     for (let i = 0; i < this.positions.length; i++) {
       const p = this._tmpVec.copy(this.positions[i]);
-      p.y += this.swimY(p.x);
+      this.deform(p);
       p.project(this.camera);
       if (p.z > 1) continue;
       const dx = (p.x * 0.5 + 0.5) * w - px, dy = (-p.y * 0.5 + 0.5) * h - py;
@@ -967,7 +1174,7 @@ export class WormScene {
     if (this.ringGroup) this.ringGroup.children.forEach((m) => m.quaternion.copy(this.camera.quaternion));
     if (this.labelIndex >= 0 && this.positions) {
       const p = this._tmpVec.copy(this.positions[this.labelIndex]);
-      p.y += this.swimY(p.x);
+      this.deform(p);
       p.project(this.camera);
       const show = p.z < 1;
       if (show !== this._labelShown) { this._labelShown = show; this.labelEl.style.display = show ? "block" : "none"; }

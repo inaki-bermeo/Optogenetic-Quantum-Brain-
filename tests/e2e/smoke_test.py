@@ -10,7 +10,9 @@ Comprueba, como lo haría alguien con teclado y mouse:
     el backend, con su logro;
   * el inspector del circuito con la tecla C (y Esc para cerrarlo), con el dibujo y los conteos;
   * IonQ limitado a un job por ejecución, la confirmación en hardware y la versión con
-    prefers-reduced-motion.
+    prefers-reduced-motion;
+  * la conducta del gusano: la tabla neurona → conducta (js/conducta.js), el gusano que la actúa tras
+    cada paso y que abrir el inspector a mitad de la conducta no traba la cascada.
 """
 
 import argparse
@@ -50,6 +52,63 @@ def entrar(pag, completa=False, out=None):
 def esperar_fin_cascada(pag, timeout=400000):
     pag.wait_for_function("document.querySelector('#casc-stop').disabled && "
                           "document.querySelectorAll('#casc-log li').length > 0", timeout=timeout)
+
+
+ESPERADO = {"AVAL": "reversa", "AVBR": "avance", "AVM": "reversa", "PLML": "avance", "RIVL": "omega",
+            "VA5": "flexion", "DB3": "flexion", "DD2": "relajar", "MCL": "bombeo", "HSNL": "puesta",
+            "RIS": "quietud", "ASHL": "escape", "ASIL": None, "ASJL": None, "ASKL": None, "I2L": None}
+
+
+def cascada_corta(pag, fuente, pasos="3"):
+    """Dispara una cascada corta desde `fuente` con la dosis del menú (Enter sobre el disparo)."""
+    pag.keyboard.press("Escape")
+    pag.fill("#casc-pasos", pasos)
+    pag.keyboard.press("Escape")
+    pag.fill("#neuron-input", fuente)
+    pag.press("#neuron-input", "Tab")
+    pag.focus("#fire-btn")
+    pag.keyboard.press("Enter")
+
+
+def probar_conducta(nav, url, out, errores):
+    """La tabla neurona → conducta y el gusano que la actúa tras cada paso."""
+    pag = nav.new_page(viewport={"width": 1440, "height": 900})
+    pag.on("pageerror", lambda e: errores.append(f"pageerror (conducta): {e}"))
+    pag.goto(url)
+    entrar(pag)
+    tabla = pag.evaluate("""async (esperado) => {
+      const m = await import('/js/conducta.js');
+      const nombres = [...document.querySelectorAll('#neuron-list option')].map((o) => o.value);
+      const mal = Object.entries(esperado).filter(([n, p]) => (m.conductaDe(n)?.programa ?? null) !== p);
+      const motor = new m.Motor();
+      return { mal, n: nombres.length, mapeadas: nombres.filter((n) => m.conductaDe(n)).length,
+               lados: [motor.aplicar('VA5').lado, motor.aplicar('DB3').lado] };
+    }""", ESPERADO)
+    assert not tabla["mal"], f"conducta equivocada: {tabla['mal']}"
+    assert tabla["n"] == 302 and tabla["lados"] == [-1, 1], tabla
+    print(f"conducta: {tabla['mapeadas']}/302 neuronas con conducta ✓")
+
+    # AVM (tacto anterior): tras la medida aparece la conducta en el escáner
+    cascada_corta(pag, "AVM")
+    pag.wait_for_function("document.querySelector('#narr-kicker').textContent.toLowerCase().includes('measured')",
+                          timeout=120000)
+    pag.wait_for_timeout(900)
+    pag.screenshot(path=str(out / "6_conducta.png"), **SHOT)
+    esperar_fin_cascada(pag)
+    assert "worm" in pag.inner_text("#casc-chips").lower(), "falta el chip de conducta"
+    assert "Waiting" not in pag.inner_text("#casc-conducta"), "no se describió la conducta"
+    print("conducta:", pag.inner_text("#casc-conducta")[:120])
+
+    # abrir el inspector (C) a mitad de la conducta no traba la cascada (el lienzo pausado la termina)
+    cascada_corta(pag, "AVAL")
+    pag.wait_for_function("document.querySelector('#narr-kicker').textContent.toLowerCase().includes('measured')",
+                          timeout=120000)
+    pag.focus("#scene")
+    pag.keyboard.press("c")
+    esperar_fin_cascada(pag, 200000)
+    pag.keyboard.press("Escape")
+    print("conducta: inspector a mitad de la conducta, la cascada termina ✓")
+    pag.close()
 
 
 def main():
@@ -156,6 +215,7 @@ def main():
         pag.set_viewport_size({"width": 700, "height": 900})
         pag.wait_for_timeout(1000)
         pag.screenshot(path=str(out / "5_angosta.png"), **SHOT)
+        probar_conducta(nav, a.url, out, errores)
         nav.close()
 
         # 6) prefers-reduced-motion: la intro se salta y la cascada corre sin animaciones
@@ -172,6 +232,7 @@ def main():
         pag.keyboard.press("Enter")
         esperar_fin_cascada(pag, 180000)
         print("reduced motion:", pag.inner_text("#casc-estado"))
+        assert "worm" in pag.inner_text("#casc-chips").lower(), "reduced motion: falta el chip de conducta"
         nav.close()
     if errores:
         print("\n".join(errores))
