@@ -6,7 +6,7 @@ This effort is supported by Qollab & IonQ.
 
 🎬 **Demo video (2–3 min):** [add the public link] · 💻 **Code (MIT):** https://github.com/JoaquinQu/Cerebro-Cu-ntico-Optogenetico · 📖 **Full theory (Spanish):** [docs/theory.md](https://github.com/inaki-bermeo/Optogenetic-Quantum-Brain-/blob/main/docs/theory.md)
 
-![Title screen: "Optogenetic Quantum Brain" in large type over the live 3D worm, with a Press start prompt.](https://raw.githubusercontent.com/inaki-bermeo/Optogenetic-Quantum-Brain-/main/docs/card/hero.jpg)
+![Title screen: "Optogenetic Quantum Brain" in large type over the live 3D worm, an anatomical adult hermaphrodite with its pharynx, intestine and gonad glowing inside, and a Press start prompt.](https://raw.githubusercontent.com/inaki-bermeo/Optogenetic-Quantum-Brain-/main/docs/card/hero.jpg)
 
 ---
 
@@ -32,7 +32,7 @@ This effort is supported by Qollab & IonQ.
 
 ### The intro
 
-![Briefing beat 03 · Collapse: the camera close on the worm, an orange ring where the measured neuron fires, and the caption explaining the measurement.](https://raw.githubusercontent.com/inaki-bermeo/Optogenetic-Quantum-Brain-/main/docs/card/intro.jpg)
+![Briefing beat 03 · Collapse: the camera close on the worm, with the intestine, gonad arms and uterine eggs visible through the translucent body, and the caption explaining the measurement.](https://raw.githubusercontent.com/inaki-bermeo/Optogenetic-Quantum-Brain-/main/docs/card/intro.jpg)
 
 - **Boot.** A console types each real loading stage as it completes: the Python core, the connectome, the body mesh and the backend.
 - **Title.** The live worm orbits slowly behind the title.
@@ -44,7 +44,7 @@ This effort is supported by Qollab & IonQ.
 
 ### The lab HUD
 
-![The HUD mid-cascade: stats bar, mission log, the 3D worm with the measured window lit, the scanner with the step's circuit and theory-vs-measured bars, and the control deck.](https://raw.githubusercontent.com/inaki-bermeo/Optogenetic-Quantum-Brain-/main/docs/card/panel1.jpg)
+![The HUD mid-cascade: stats bar, mission log in superposition, a Quantum leap achievement, the anatomical worm with the measured window lit, and the scanner with the worm-behaviour box, the step's circuit and theory-vs-measured bars.](https://raw.githubusercontent.com/inaki-bermeo/Optogenetic-Quantum-Brain-/main/docs/card/panel1.jpg)
 
 - **Colour code.** Cyan means quantum (superposition, theory). Orange means measured (the spike, the laser). Yellow means real hardware.
 - **One circuit per step.** Each step builds a 10-qubit circuit around the neuron that just fired, runs it as one job, and measures all 10 qubits. One valid shot is picked at random, and the neuron that came out as 1 fires the next step.
@@ -59,6 +59,9 @@ This effort is supported by Qollab & IonQ.
   - *Long range*: the spike landed two synapses away;
   - *Reflex*, *Escape artist*, *First egg* and *Tug of war*: a touch neuron, ASH, an egg-laying neuron, or both forward and backward command neurons fired, and the worm reacted as the real one does (step 8).
 - **The worm** looks like a fluorescence micrograph of an adult hermaphrodite, built in Blender from the same midline as the 302 neurons (all of them sit inside it): six lips around the mouth, the pharynx with its two bulbs and grinder, the nerve ring, the segmented intestine, the U-shaped gonad arms with growing oocytes, embryos waiting in the uterus, the vulva and a whip-like tail. It crawls with a slow curvature wave that pauses while each circuit is measured.
+
+  ![Close-up of the worm at rest: the nerve ring around the pharynx isthmus, the terminal bulb with its grinder, the segmented intestine, a gonad arm with growing oocytes and embryos in the uterus, with the neurons as coloured dots.](https://raw.githubusercontent.com/inaki-bermeo/Optogenetic-Quantum-Brain-/main/docs/card/anatomy.jpg)
+
 - **The worm acts.** When the measured neuron has a known role in the real animal, the worm acts it out before the next step: AVA backs it up, AVB drives it forward, ASH triggers an escape with an omega turn, MC pumps the pharynx, HSN lays an egg, RIS makes it stop. A chip and the "Worm behaviour" box in the scanner name the behaviour and its references. Each behaviour has its own soft sound, and for local ones (head, a body segment, the pharynx, the vulva) the camera glides in for a moment and returns to your view. Neurons with no known direct effect leave the worm still (see step 8).
 - **Sound** (toggle in the top bar):
   - the laser charges with a rising tone and fires with a falling chirp;
@@ -195,7 +198,7 @@ The window is the neuron that fired plus its 9 neighbours with the most synapses
 
 ### 8. From spike to behaviour
 
-![The worm mid-escape after the cascade measured the nociceptor ASHL: the body curls ventrally into an omega turn, the mission log says what ASHL means in the real worm, and the scanner shows the "escape: reversal, then omega turn" chip with its references.](https://raw.githubusercontent.com/inaki-bermeo/Optogenetic-Quantum-Brain-/main/docs/card/behaviour.jpg)
+![The worm mid-escape after the cascade measured the nociceptor ASHL: the body and every organ inside curl ventrally into an omega turn, the camera frames the loop, the mission log says what ASHL means in the real worm, and the scanner shows the "escape: reversal, then omega turn" chip with its references.](https://raw.githubusercontent.com/inaki-bermeo/Optogenetic-Quantum-Brain-/main/docs/card/behaviour.jpg)
 
 **In plain words.** The cascade is our quantum model. What the worm then does is real biology: each neuron class is mapped to what experiments saw when those neurons were switched on with light or removed.
 

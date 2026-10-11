@@ -32,6 +32,8 @@ python tools/optimize_glb.py        # quita normales e índices de 32 bits si lo
 
 ## Anatomía (hermafrodita adulto, el sexo del conectoma de Cook 2019)
 
+![Vista lateral del modelo en rayos X (Blender), con cada órgano en su color.](card/anatomy-blender.jpg)
+
 Proporciones estilizadas a partir de WormAtlas / WormBook (Altun & Hall, *Hermaphrodite anatomy*). Todo sigue la misma línea media que la nube de somas, así que los 302 somas quedan dentro del cuerpo y una sola cinemática dobla cuerpo, órganos y neuronas.
 
 - **Cuerpo:** postura del modelo de OpenWorm; nariz redondeada con **6 labios** alrededor de la boca; radio anatómico (máximo ~40 µm) o el necesario para contener los somas; **alas laterales** (crestas de la cutícula a los costados); **vulva** ventral a mitad del cuerpo (hendidura con labios); **ano** ventral (~88 % del largo) y **cola post-anal** que se afina en un látigo; **poro excretor** ventral junto al bulbo terminal. Los anillos de la cutícula los dibuja el shader.

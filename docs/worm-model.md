@@ -19,6 +19,10 @@ WormBook (Altun & Hall, *Hermaphrodite anatomy*).
 | Gonad (`Gonada`) | Two U-shaped arms. Each runs ventrally away from the vulva, turns dorsally and comes back, with oocytes that grow toward the spermatheca. |
 | Eggs (`Huevos`) | Six embryos (about 45 × 27 µm) waiting in the uterus beside the vulva. The egg laid by the "egg laying" behaviour leaves from there. |
 
+![The Blender model in X-ray, side view: cuticle, pharynx with grinder, nerve ring, intestine, U-shaped gonad arms with oocytes and embryos, each in its own colour.](card/anatomy-blender.jpg)
+
+![The same model in the app: close-up of the nerve ring, terminal bulb with grinder, intestine, gonad arm with oocytes and uterine eggs.](card/anatomy.jpg)
+
 Everything is built from the same midline as the cloud of 302 neuron cell bodies, so **all 302 somas are inside the
 body**. The previous body contained 301.
 
@@ -46,6 +50,8 @@ body**. The previous body contained 301.
 - `WormScene.deform()` reads the same table on the CPU, so picking a neuron, its label and the camera flights always
   match what is drawn.
 - The texture is only re-uploaded on frames where something moves.
+
+![The omega turn after a real cascade from ASHL: body and organs curl together into a ventral loop.](card/behaviour.jpg)
 
 ## Files
 
