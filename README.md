@@ -270,15 +270,6 @@ Hamiltonian simulation is theoretically profound but notoriously difficult to vi
 
 ---
 
-## Testing and Development
-
-* **Unit tests** (`tests/backend/`, 24 tests): the one-excitation XY dynamics equals the exact walk; Trotter convergence; Qiskit's bit order; the step circuit against the theory; a step on a backend and a shot with no spike; the instant circuit view is the same circuit that runs; the Zeno table above; the Qiskit figures; and Qollab's rules for the upload (file limits, the shape of `index.html`, allowed imports, no API keys).
-* **Browser smoke test** (`tests/e2e/smoke_test.py`, Playwright): walks the intro by keyboard, fires a charged shot, opens the inspector, checks the IonQ one-job lock and the QPU confirmation, a reduced-motion run and a phone run with touch.
-* **Run it locally:** `python tools/dev_server.py` imitates Qollab at `http://127.0.0.1:8765` (`?backend=ionq` or `?backend=qpu` imitate IonQ). `python tools/build_qollab.py` builds the folder uploaded to Qollab and checks its limits (at most 100 files, 2 MB each). Details in [docs/development.md](https://github.com/inaki-bermeo/Optogenetic-Quantum-Brain-/blob/main/docs/development.md).
-* **Safety:** the real IonQ QPU only runs after a confirming second click, and no API key lives in the code.
-
----
-
 ## Future Horizons
 
 While a single-excitation quantum walk can be simulated efficiently on classical hardware, this platform's underlying Trotterized architecture natively supports the classically intractable regime of multiple simultaneous lasers (hard-core bosons). Future expansions could incorporate directed synapses for chiral quantum walks, inhibitory connections (utilizing negative $J_{ij}$ weights), and full X-basis measurements to actively reveal off-diagonal coherence terms.
