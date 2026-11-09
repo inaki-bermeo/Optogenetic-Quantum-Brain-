@@ -115,7 +115,12 @@ def circuito_de(centro: int, theta: float, tau: float, gamma: float, pasos: int)
 
 @lru_cache(maxsize=64)
 def _transpilado(backend, centro: int, theta: float, tau: float, gamma: float, pasos: int):
-    qc = circuito_de(centro, theta, tau, gamma, pasos)[0]
+    qc, metodo = circuito_de(centro, theta, tau, gamma, pasos)[:2]
+    if metodo == "pauli_evolution":
+        # IonQ (qiskit_ionq) rechaza un PauliEvolutionGate con términos que no conmutan y
+        # transpile no lo descompone: se expande antes a sus RXX/RYY de Trotter-Suzuki.
+        from .api import _expandir
+        qc = _expandir(qc)
     try:
         from qiskit import transpile
 

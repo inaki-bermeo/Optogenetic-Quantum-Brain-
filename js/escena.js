@@ -83,7 +83,7 @@ const SWIM_FRAME = 1 / 30; // el nado, si es lo único que se mueve, se dibuja a
 // deform() en JS repite exactamente esta cuenta (picking, etiquetas, cámara).
 const CURVA_N = 64;
 const SWIM_GLSL = /* glsl */`
-  uniform float uSwimT; uniform sampler2D uCurva; uniform vec2 uCurvaX;
+  uniform float uSwimT; uniform sampler2D uCurva; uniform vec2 uCurvaX; uniform vec3 uDesp;
   void wormCurva(float x, out vec2 C, out vec2 C0, out vec2 R){
     float u = clamp((x - uCurvaX.x) / (uCurvaX.y - uCurvaX.x), 0.0, 1.0) * ${CURVA_N - 1}.0;
     int i = int(min(floor(u), ${CURVA_N - 2}.0));
@@ -95,7 +95,8 @@ const SWIM_GLSL = /* glsl */`
   vec3 wormDeform(vec3 p){
     vec2 C, C0, R; wormCurva(p.x, C, C0, R);
     vec2 o = p.xy - C0;
-    return vec3(C + vec2(R.x * o.x - R.y * o.y, R.y * o.x + R.x * o.y), p.z);
+    // uDesp: el gusano entero se desplaza (se acerca a la comida o retrocede) y después vuelve a su lugar
+    return vec3(C + vec2(R.x * o.x - R.y * o.y, R.y * o.x + R.x * o.y), p.z) + uDesp;
   }
   // la normal gira con la sección (exacto: el mismo giro que la posición)
   vec3 wormNormal(vec3 p, vec3 n){
@@ -142,9 +143,12 @@ const POSTURA_MIN = 0.15; // por debajo de este |κ·L| una flexión se olvida
 // interactúa; el resto decora y deriva. El gusano está anclado: cuando avanza, son las bacterias las que
 // pasan hacia la cola (el fondo "fluye"), y la comida se acerca a la boca.
 const N_BACTERIAS = 240;
-const COMIDA_DIST = [2.6, 3.6]; // a cuánto aparece la comida delante de la boca (unidades de escena)
-const COMIDA_EMPUJE = 1.4; // cuánto se acerca por unidad de empuje de una neurona (js/conducta.js)
-const COMIDA_NADO = 0.08; // cuánto se acerca por segundo mientras el gusano repta hacia adelante
+const COMIDA_DIST = [2.5, 3.0]; // a cuánto queda la comida delante de la boca (unidades de escena); no se mueve
+const ESTOCADA = 2.3; // cuánto se desplaza el gusano por unidad de empuje de una neurona (js/conducta.js)
+const EMPUJE_COMER = 0.75; // una orden de avance así de fuerte (AVB, PVC) llega hasta la comida y se la come
+const ALCANCE = 0.3; // la boca "toca" la comida a esta distancia
+const QUEDARSE = 1.6; // segundos que el gusano se queda más cerca (o más lejos) antes de volver a su lugar
+const DESP_MAX = 3.5; // lo más lejos que lo llevan los empujes sumados de un ciclo del láser
 const BACT_GLSL_FRAG = /* glsl */`
   uniform float uK;
   varying vec3 vColor; varying float vBrillo; varying vec3 vN; varying vec3 vV;
@@ -242,6 +246,7 @@ export class WormScene {
     this.swimU = {
       uSwimT: { value: 0 }, uBrillo: { value: 1 },
       uCurva: { value: this._curva.tex }, uCurvaX: { value: new THREE.Vector2(0, 1) },
+      uDesp: { value: new THREE.Vector3() }, // desplazamiento del gusano entero (ver _animateComida)
     };
     this._fase = 0; // fase de la onda del reptar
     this._flexS = 0.5; this._flexW = 0.09; this._relajaS = 0.5; // dónde actúan la flexión y la relajación
@@ -443,8 +448,8 @@ export class WormScene {
           vec4 w = modelMatrix * vec4(position, 1.0);
           w.xyz += n0 * uPump; // bombeo: la faringe se ensancha y se contrae
           vec3 n = wormNormal(w.xyz, n0);
+          vW = w.xyz; // anillos y grano pegados al cuerpo (antes de curvarlo y desplazarlo)
           w.xyz = wormDeform(w.xyz);
-          vW = w.xyz;
           vec4 mv = viewMatrix * w;
           vN = normalize(mat3(viewMatrix) * n); vV = normalize(-mv.xyz);
           gl_Position = projectionMatrix * mv;
@@ -734,7 +739,7 @@ export class WormScene {
   /** Deforma p (escena) igual que wormDeform del shader: para picking, etiquetas y cámara. Modifica p y lo devuelve. */
   deform(p) {
     const K = this._curva;
-    if (K.identidad) return p;
+    if (K.identidad) return p.add(this.swimU.uDesp.value);
     const u = Math.min(1, Math.max(0, (p.x - K.x0) / (K.x1 - K.x0))) * (CURVA_N - 1);
     const i = Math.min(Math.floor(u), CURVA_N - 2), f = u - i;
     const L = (A) => A[i] + (A[i + 1] - A[i]) * f;
@@ -744,7 +749,7 @@ export class WormScene {
     const ox = p.x - L(K.c0x), oy = p.y - L(K.c0y);
     p.x = L(K.cx) + rc * ox - rs * oy;
     p.y = L(K.cy) + rs * ox + rc * oy;
-    return p;
+    return p.add(this.swimU.uDesp.value);
   }
 
   _animateSwim(dt) {
@@ -768,8 +773,6 @@ export class WormScene {
     const e = S.level * S.level * (3 - 2 * S.level);
     U.uSwimT.value += dt;
     this._fase += M.dir * M.freq * SWIM_W * dt * e;
-    // reptar mueve al gusano: hacia adelante la comida se acerca, en reversa se aleja (y el fondo fluye)
-    if (this.comida?.estado === "nadando") this.comida.objetivo -= COMIDA_NADO * M.dir * M.freq * dt * e;
     if (this._driveT > 0 && S.level > 0) {
       this._driveT -= dt;
       if (this._driveT <= 0) Object.assign(T, { dir: 1, freq: 1 }); // vuelve al avance, lo normal del gusano
@@ -903,6 +906,9 @@ export class WormScene {
     Object.assign(this.motion, MOTION_REPOSO, { dir: this.motion.dir });
     Object.assign(this.motionT, MOTION_REPOSO, { dir: this.motion.dir });
     Object.assign(this.swim, { level: 0, target: 0, rampa: 0.9 });
+    // el desplazamiento (estocada) sigue por su cuenta: _animateComida lo trae de vuelta tras quedarse un rato;
+    // sin animación (lienzo oculto), vuelve de inmediato
+    if (!this._running) { this._despObj?.set(0, 0, 0); this.swimU.uDesp.value.set(0, 0, 0); }
     this._writeMotion(0);
     this._quitarHuevo();
     this.requestRender();
@@ -957,8 +963,8 @@ export class WormScene {
   _initBacterias() {
     if (this._bact || !this.bodyBox) return;
     const K = this._curva, bb = this.bodyBox;
-    const x0 = K.x0 - 9, x1 = K.x1 + 7; // caja donde derivan (envuelve en x: el fondo fluye sin fin)
-    const geo = new THREE.CapsuleGeometry(0.045, 0.13, 3, 8);
+    const x0 = K.x0 - 9, x1 = K.x1 + 7; // caja donde flotan las bacterias
+    const geo = new THREE.CapsuleGeometry(0.05, 0.15, 3, 8);
     geo.rotateZ(Math.PI / 2); // bastón a lo largo de x
     const n = N_BACTERIAS;
     const color = new Float32Array(n * 3), fase = new Float32Array(n);
@@ -966,9 +972,9 @@ export class WormScene {
     const magenta = new THREE.Color("#ff3df0");
     const mesh = new THREE.InstancedMesh(geo, new THREE.ShaderMaterial({
       transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
-      uniforms: { uT: this.swimU.uSwimT, uFlujo: { value: 0 }, uCaja: { value: new THREE.Vector2(x0, x1) }, uK: { value: 0.55 } },
+      uniforms: { uT: this.swimU.uSwimT, uK: { value: 0.55 } },
       vertexShader: /* glsl */`
-        uniform float uT; uniform float uFlujo; uniform vec2 uCaja;
+        uniform float uT;
         attribute vec3 aColor; attribute float aFase;
         varying vec3 vColor; varying float vBrillo; varying vec3 vN; varying vec3 vV;
         mat3 rotar(vec3 e){
@@ -979,13 +985,13 @@ export class WormScene {
           return rz * ry * rx;
         }
         void main(){
-          // cada bacteria gira despacio sobre sí misma (tumbling) y deriva con un vaivén browniano suave
+          // cada bacteria gira despacio sobre sí misma (tumbling) y tiembla un poco en su lugar (browniano);
+          // no se desplazan: el medio está quieto
           vec3 e = vec3(aFase * 6.2832, aFase * 13.7, aFase * 29.1) + uT * vec3(0.21, 0.33, 0.17) * (0.5 + fract(aFase * 7.3));
           mat3 r = rotar(e);
           vec3 centro = (modelMatrix * instanceMatrix * vec4(0., 0., 0., 1.)).xyz;
-          centro += vec3(uFlujo + 0.25 * sin(uT * 0.31 + aFase * 10.0), 0.16 * sin(uT * 0.23 + aFase * 17.0),
-                         0.16 * cos(uT * 0.19 + aFase * 13.0));
-          centro.x = uCaja.x + mod(centro.x - uCaja.x, uCaja.y - uCaja.x);
+          centro += vec3(0.08 * sin(uT * 0.31 + aFase * 10.0), 0.08 * sin(uT * 0.23 + aFase * 17.0),
+                         0.08 * cos(uT * 0.19 + aFase * 13.0));
           float esc = length(instanceMatrix[0].xyz);
           vec4 w = vec4(centro + r * (position * esc), 1.0);
           vec4 mv = viewMatrix * w;
@@ -998,12 +1004,12 @@ export class WormScene {
     }), n);
     const m = new THREE.Matrix4(), q = new THREE.Quaternion(), v = new THREE.Vector3(), sc = new THREE.Vector3();
     for (let i = 0; i < n; i++) {
-      // fuera del cuerpo: se descartan los puntos que caen dentro del gusano
+      // fuera del cuerpo (y lejos de donde se estira el gusano hacia la comida)
       let tries = 0;
       do {
         v.set(x0 + Math.random() * (x1 - x0), -4 + Math.random() * 8, -6 + Math.random() * 9);
         tries++;
-      } while (tries < 10 && v.x > bb.min.x - 0.3 && v.x < bb.max.x + 0.3 && Math.abs(v.y) < 1.2 && Math.abs(v.z) < 1.2);
+      } while (tries < 10 && v.x > bb.min.x - 2.2 && v.x < bb.max.x + 0.3 && Math.abs(v.y) < 1.3 && Math.abs(v.z) < 1.3);
       const k = 0.7 + Math.random() * 0.7;
       m.compose(v, q, sc.set(k, k, k));
       mesh.setMatrixAt(i, m);
@@ -1016,9 +1022,9 @@ export class WormScene {
     this.scene.add(mesh);
     this._bact = mesh;
 
-    // la comida: una bacteria más grande y brillante, con un halo que late (más cuando el gusano la "huele")
+    // la comida: una bacteria más grande y brillante, quieta, con un halo que late (más cuando el gusano la "huele")
     const g = new THREE.Group();
-    const cuerpo = new THREE.Mesh(new THREE.CapsuleGeometry(0.075, 0.2, 4, 12).rotateZ(Math.PI / 2), new THREE.ShaderMaterial({
+    const cuerpo = new THREE.Mesh(new THREE.CapsuleGeometry(0.12, 0.32, 4, 14).rotateZ(Math.PI / 2), new THREE.ShaderMaterial({
       transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
       uniforms: { uK: { value: 1 }, uColor: { value: new THREE.Color("#b6ff3d").multiplyScalar(1.6) } },
       vertexShader: /* glsl */`
@@ -1032,86 +1038,136 @@ export class WormScene {
         }`,
       fragmentShader: BACT_GLSL_FRAG,
     }));
-    const halo = new THREE.Mesh(new THREE.SphereGeometry(0.32, 20, 14), new THREE.MeshBasicMaterial({
+    const halo = new THREE.Mesh(new THREE.SphereGeometry(0.48, 20, 14), new THREE.MeshBasicMaterial({
       color: new THREE.Color("#7dff5c"), transparent: true, opacity: 0.12, blending: THREE.AdditiveBlending,
       depthWrite: false, toneMapped: false }));
-    const ola = new THREE.Mesh(new THREE.RingGeometry(0.3, 0.34, 48), new THREE.MeshBasicMaterial({
+    const ola = new THREE.Mesh(new THREE.RingGeometry(0.45, 0.5, 48), new THREE.MeshBasicMaterial({
       color: new THREE.Color("#b6ff3d"), transparent: true, opacity: 0, blending: THREE.AdditiveBlending,
       depthWrite: false, toneMapped: false, side: THREE.DoubleSide }));
     g.add(cuerpo, halo, ola);
     this.scene.add(g);
     this._comidaFx = { g, cuerpo, halo, ola };
-    // la boca: punta de la cabeza (en reposo); deform() la mueve con el cuerpo
+    // la boca: punta de la cabeza (en reposo); deform() la mueve con el cuerpo y con el desplazamiento
     const [cy, cz] = this._linea ? this._linea(K.x0 + 0.02) : [0, 0];
     this._boca0 = new THREE.Vector3(K.x0, cy, cz);
-    this._nuevaComida(true);
+    this._despObj = new THREE.Vector3(); // hacia dónde se desplaza el gusano (0 = su lugar)
+    this._nuevaComida();
   }
 
-  /** Aparece una bacteria comida nueva delante de la boca (a la izquierda: la cabeza mira hacia −x). */
-  _nuevaComida(primera = false) {
-    const [a, b] = COMIDA_DIST;
-    const d = primera ? b : a + Math.random() * (b - a);
+  /** Aparece una bacteria comida nueva, quieta, delante de la boca (la cabeza mira hacia −x). */
+  _nuevaComida() {
+    const [a, b] = COMIDA_DIST, B = this._boca0;
+    const y = (Math.random() < 0.5 ? -1 : 1) * (0.15 + Math.random() * 0.35);
     this.comida = {
-      estado: "nadando", dist: d, objetivo: d, t: 0, olor: 0, aparecer: 0,
-      y: (Math.random() < 0.5 ? -1 : 1) * (0.5 + Math.random() * 0.9), z: -0.6 + Math.random() * 1.2,
-      giro: Math.random() * Math.PI,
+      estado: "esperando", t: 0, olor: 0, aparecer: 0, giro: (Math.random() - 0.5) * 0.8,
+      pos: new THREE.Vector3(B.x - (a + Math.random() * (b - a)), B.y + y, B.z + (Math.random() - 0.5) * 0.5),
     };
-    this._flujoPrev = d;
     this.requestRender();
   }
 
   /** Lado de la comida respecto de la boca (+1 arriba, −1 abajo): hacia dónde gira la cabeza al olerla. */
-  _ladoComida() { return this.comida && this.comida.y < 0 ? -1 : 1; }
+  _ladoComida() { return this.comida && this.comida.pos.y < this._boca0.y ? -1 : 1; }
 
-  /** Una neurona química "olió" la comida: el halo late y una onda va de la bacteria hacia la cabeza. */
+  /** Una neurona química "olió" la comida: el halo late y una onda sale de la bacteria. */
   _olor() { if (this.comida) { this.comida.olor = 1; this.requestRender(); } }
 
-  /** Empuje de una neurona (js/conducta.js): hacia adelante la comida se acerca; hacia atrás, se aleja. */
+  /**
+   * Empuje de una neurona (js/conducta.js): el gusano entero se desplaza hacia la comida (adelante) o se aleja
+   * (atrás). Dentro de un ciclo del láser (inicioCiclo … finCiclo) los empujes se suman: el gusano guarda la
+   * posición a la que llegó y recién al terminar la cascada se queda un momento y vuelve a su lugar. Fuera de
+   * un ciclo, vuelve tras QUEDARSE segundos. Si llega a la comida, se la come.
+   * Sin animación (movimiento reducido, nado apagado), una estocada que alcanza la come directamente.
+   */
   acercarComida(empuje) {
     const C = this.comida;
-    if (!C || C.estado !== "nadando" || !empuje) return;
-    C.objetivo = Math.min(COMIDA_DIST[1] + 1.5, C.objetivo - COMIDA_EMPUJE * empuje);
-    if (this.reducedMotion) C.dist = C.objetivo;
+    if (!C || !empuje || !this._despObj) return;
+    const largo = ESTOCADA * Math.abs(empuje);
+    const obj = this.puedeActuar ? this._despObj : new THREE.Vector3(); // sin animación no se acumula
+    if (empuje > 0) {
+      const hayComida = C.estado === "esperando";
+      // hacia la comida desde donde está la boca ahora; si ya se la comió, sigue derecho hacia adelante (−x)
+      const v = hayComida ? C.pos.clone().sub(this._boca0).sub(obj) : new THREE.Vector3(-1, 0, 0);
+      const d = hayComida ? v.length() : Infinity;
+      const llega = hayComida && (empuje >= EMPUJE_COMER || largo >= d - ALCANCE);
+      obj.add(v.setLength(llega ? d : Math.max(0, Math.min(largo, d - ALCANCE - 0.15))));
+      if (!this.puedeActuar && llega) this._comer();
+    } else {
+      obj.x += largo; // hacia atrás: hacia la cola (+x)
+    }
+    if (obj.length() > DESP_MAX) obj.setLength(DESP_MAX);
+    this._quedarse = QUEDARSE;
     this.requestRender();
   }
 
-  /** Mueve la comida (y el fondo de bacterias), la come al llegar a la boca y hace aparecer otra. */
+  /** Empieza un ciclo del láser (una cascada): parte desde su lugar y los empujes se van sumando. */
+  inicioCiclo() {
+    this._ciclo = true;
+    this._despObj?.set(0, 0, 0);
+    this.requestRender();
+  }
+
+  /** Termina el ciclo: el gusano se queda QUEDARSE segundos donde llegó y después vuelve a su lugar. */
+  finCiclo() {
+    this._ciclo = false;
+    this._quedarse = QUEDARSE;
+    if (!this._running) { this._despObj?.set(0, 0, 0); this.swimU.uDesp.value.set(0, 0, 0); }
+    this.requestRender();
+  }
+
+  _comer() {
+    const C = this.comida;
+    if (!C || C.estado !== "esperando") return;
+    C.estado = "comiendo";
+    C.t = 0;
+    this.callbacks.comer();
+    // la faringe bombea mientras traga (si no hay otra conducta en curso)
+    if (!this._actuar && this.puedeActuar) {
+      this.motionT.bombeo = 1; this.swim.target = 1;
+      setTimeout(() => { if (!this._actuar) this.motionT.bombeo = 0; }, 1600);
+    }
+    if (!this.puedeActuar) this._nuevaComida();
+  }
+
+  /** Desplaza al gusano (estocada y vuelta), anima la comida quieta y la come cuando la boca la alcanza. */
   _animateComida(dt) {
     const C = this.comida, F = this._comidaFx;
     if (!C || !F) return false;
     let mueve = false;
-    // la distancia sigue a su objetivo (suave); el fondo fluye lo mismo que se acercó la comida
-    const dd = C.objetivo - C.dist;
-    if (Math.abs(dd) > 1e-4) {
-      C.dist += dd * Math.min(1, dt * 1.6);
-      if (Math.abs(dd) > 0.02) mueve = true; // el acercamiento lento del reptar va al ritmo del nado (30 fps)
+    // desplazamiento del gusano entero: se acerca suave a su objetivo (la vuelta, más rápida)
+    // se acerca (o se aleja) y guarda esa posición mientras dure el ciclo del láser; al final se queda ahí
+    // QUEDARSE segundos para que se note la nueva distancia y vuelve
+    const desp = this.swimU.uDesp.value;
+    const falta = desp.distanceTo(this._despObj);
+    const vuelve = this._despObj.lengthSq() === 0;
+    if (falta > 1e-3) {
+      desp.lerp(this._despObj, Math.min(1, dt * (vuelve ? 1.5 : 1.8)));
+      if (falta < 2e-3) desp.copy(this._despObj);
+      mueve = true;
     }
-    this._bact.material.uniforms.uFlujo.value += this._flujoPrev - C.dist;
-    this._flujoPrev = C.dist;
+    // durante un ciclo del láser guarda la posición; al terminar (y ya tragada la comida) cuenta y vuelve
+    if (!vuelve && falta < 0.05 && !this._ciclo && !(C.estado === "comiendo" && C.t < 0.6)) {
+      this._quedarse -= dt;
+      if (this._quedarse <= 0) this._despObj.set(0, 0, 0);
+      mueve = true;
+    }
     if (C.olor > 0) { C.olor = Math.max(0, C.olor - dt / 1.6); mueve = true; }
     if (C.aparecer < 1) { C.aparecer = Math.min(1, C.aparecer + dt / 0.8); mueve = true; }
     C.t += dt;
-    // posición: delante de la boca; el desvío lateral se cierra al acercarse (la cabeza la alcanza)
     const boca = this.deform(this._tmpVec2.copy(this._boca0));
-    const lat = Math.min(1, Math.max(0, C.dist) / 1.6);
-    const pos = F.g.position.set(boca.x - Math.max(0, C.dist), boca.y + C.y * lat, boca.z + C.z * lat);
-    if (C.estado === "nadando" && C.dist <= 0.12) {
-      C.estado = "comiendo";
-      C.t = 0;
-      this.callbacks.comer();
-      // la faringe bombea mientras traga (si no hay otra conducta en curso)
-      if (!this._actuar) { this.motionT.bombeo = 1; this.swim.target = 1; setTimeout(() => { if (!this._actuar) this.motionT.bombeo = 0; }, 1600); }
-    }
+    // llega cuando la estocada (la boca en reposo, desplazada) alcanza la comida: el vaivén de la cabeza no cuenta
+    if (C.estado === "esperando" && this._boca0.clone().add(desp).distanceTo(C.pos) < ALCANCE) this._comer();
+    const pos = F.g.position.copy(C.pos);
     let k = C.aparecer;
     if (C.estado === "comiendo") {
-      const u = Math.min(1, C.t / 0.7);
-      pos.lerp(boca, u);
+      const u = Math.min(1, C.t / 0.6);
+      pos.lerp(boca, u); // entra por la boca
       k *= 1 - u;
       mueve = true;
-      if (C.t > 1.8) this._nuevaComida();
+      // la nueva aparece cuando el gusano ya volvió a su lugar (si no, podría aparecer justo en su boca)
+      if (C.t > 2.2 && !this._ciclo && desp.lengthSq() < 0.01) this._nuevaComida();
     }
     const late = 0.5 + 0.5 * Math.sin(C.t * 2.4);
-    F.cuerpo.rotation.set(0, 0, C.giro + 0.25 * Math.sin(C.t * 0.6));
+    F.cuerpo.rotation.set(0, 0, C.giro);
     F.cuerpo.material.uniforms.uK.value = k * (0.9 + 0.3 * late + 0.8 * C.olor);
     F.cuerpo.scale.setScalar(Math.max(0.05, k));
     F.halo.material.opacity = k * (0.08 + 0.06 * late + 0.25 * C.olor);
